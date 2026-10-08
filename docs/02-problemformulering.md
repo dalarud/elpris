@@ -61,7 +61,7 @@ Delmål som går att mäta:
 
 ## Okända faktorer som ändrar siffrorna mest
 
-Räknat i kronor är det här de uppgifter om ditt hushåll som påverkar resultatet mest. Jag ställer frågorna i steg 4, men de kan med fördel besvaras tidigare:
+Räknat i kronor är det här de uppgifter om ditt hushåll som påverkar resultatet mest. *(Besvarade 2026-10-08, se [beslutsloggen](beslutslogg.md) och [steg 3](03-ideer.md).)*
 
 1. **Nätbolag och nättariff.** Med tidstariff eller effektavgift flyttas de billiga timmarna och värdet av styrning ökar.
 2. **Bergvärmepumpens märke och modell**, om den är uppkopplad och om prisstyrning redan är på. Det avgör om den kan styras och hur.

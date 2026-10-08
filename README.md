@@ -8,8 +8,8 @@ Ett produktutvecklingsprojekt: en app som hjälper ett hushåll i elområde SE3 
 |---|---|---|
 | 1. Utred | [docs/01-utredning.md](docs/01-utredning.md) | ✅ Klart 2026-10-08 |
 | 2. Formulera problemet | [docs/02-problemformulering.md](docs/02-problemformulering.md) | ✅ Klart 2026-10-08 |
-| 3. Spåna brett | — | ⏳ Väntar på avstämning |
-| 4. Föreslå riktning, stäm av | — | |
+| 3. Spåna brett | [docs/03-ideer.md](docs/03-ideer.md) | ✅ Klart 2026-10-08 |
+| 4. Föreslå riktning, stäm av | [docs/04-riktning.md](docs/04-riktning.md) | ⏳ Väntar på svar |
 | 5. Bygg första version | — | |
 | 6. Utvärdera och förbättra | — | |
 
@@ -20,12 +20,14 @@ Beslut, antaganden och öppna frågor: [docs/beslutslogg.md](docs/beslutslogg.md
 - Tidpunkten är värd cirka **3 500 kr/år** för ett hushåll som detta (uppskattning på verkliga SE3-priser senaste 12 månaderna), ungefär 10 % av elräkningen.
 - Ungefär **90 % av det kommer från laddhybriden och bergvärmen**. Disk, tvätt och tork är värda cirka 400 kr/år tillsammans.
 - Dygnsmönstret är förutsägbart. En fast timer fångar 87–94 % av värdet. Det som är svårt är automatik och undantagsdagar, inte prognoser.
+- För just detta hushåll (Jönköping Energi, Thermia Calibra 12, prisstyrd laddbox) återstår cirka **3 100 kr/år**: Smart Price i värmepumpen (≈ 1 900–2 300 kr) och tidstariff (≈ 700–800 kr). Effektavgiften togs bort 1 september 2026.
 
 ## Analys
 
 ```
 python3 analys/hamta_priser.py SE3 2022-11-01 2026-10-09 data/spotpris_SE3.csv   # hämtar bara saknade dygn
 python3 analys/analys_besparing.py                                              # skriver analys/resultat_steg1.md
+python3 analys/analys_hushall.py                                                # skriver analys/resultat_steg3.md
 ```
 
 Kräver Python 3.11+ med pandas och numpy. Prisdata: [elprisetjustnu.se](https://www.elprisetjustnu.se) (källa ENTSO-E).

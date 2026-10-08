@@ -147,6 +147,21 @@ Som jämförelse: RISE simulerade 2025 åt Energimyndigheten en villa i SE3 med 
 
 ---
 
+## 7. Tillägg 2026-10-08: ditt nätbolag och din värmepump
+
+**Jönköping Energi Nät**
+- Effektavgiften (en avgift per kW, beräknad på snittet av de två högsta timvärdena per månad) **togs bort den 1 september 2026** för alla kunder med säkring upp till 63 A. Bytet skedde automatiskt. Bolaget hänvisar till regeringens besked den 13 mars 2026 och uppger att 40 % av kunderna fick det billigare med effektavgift, 40 % dyrare och 20 % ingen skillnad.
+- **Säkringstariff** (nuläge, inkl. moms): 16 A 330,28 kr/mån, 20 A 432,94 kr/mån, 25 A 522,24 kr/mån. Överföring 29,29 öre/kWh.
+- **Tidstariff** (valbar, inkl. moms): 16 A 513,52 kr/mån, 20 A 624,91 kr/mån. Överföring 37,84 öre/kWh måndag–fredag 07–22 november–mars och 9,21 öre/kWh övrig tid. Prislistan nämner inte helgdagar. Bindningstid och bytesregler framgår inte och måste frågas efter.
+
+**Thermia Calibra 12**
+- Bergvärmepump med varvtalsstyrd kompressor, 3–12 kW värme. Har styrsystemet Genesis och kan anslutas via Modbus.
+- **Thermia Online** ingår utan abonnemang. **Smart Price** är en kostnadsfri tilläggstjänst som planerar värme *och* varmvatten efter Nord Pools spotpris, med en reglage mellan komfort och besparing. Calibra-serien stöds. Kräver Genesis 13.00 eller senare (standard sedan februari 2023). Thermia anger ingen besparingssiffra.
+
+Källor: [Jönköping Energi – elnätspriser](https://jonkopingenergi.se/privat/elnat/elnat/priser), [Jönköping Energi återgår till prismodell utan effektavgift](https://www.mynewsdesk.com/se/jonkopingenergi/pressreleases/joenkoeping-energi-aatergaar-till-prismodell-utan-effektavgift-3440958), [SVT Jönköping 1 april 2026](https://www.svt.se/nyheter/lokalt/jonkoping/jonkoping-energi-slopar-kritiserade-effektavgifterna), [Thermia Smart Price](https://www.thermia.se/varmepumpar/spotprisstyrning/smart-price/), [Thermia Online](https://www.thermia.se/varmepumpar/tjaenster-foer-distansstyrning/thermia-online/), [Thermia Calibra](https://www.thermia.se/varmepumpar/utgaangna-modeller/calibra-bergvarmepump-jordvarmepump/).
+
+---
+
 ## Källförteckning
 
 **Myndigheter och regering**
