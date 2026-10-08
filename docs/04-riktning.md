@@ -1,5 +1,7 @@
 # Steg 4 – Föreslagen riktning (att stämma av innan jag bygger)
 
+> **Uppdatering 2026-10-08:** Du svarade att du hellre vill ha *överblick över elkostnaderna* och *varningar när elen blir dyr*. Riktningen nedan är därför ersatt. Se [05-forsta-versionen.md](05-forsta-versionen.md).
+
 ## Kort
 
 En liten svensk webbapp, **Elbesked**, med tre delar. Ingen av dem visar en priskurva som huvudsak.

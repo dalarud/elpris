@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Elkollen</title>
+  <meta name="description" content="Överblick över dina elkostnader och varningar när elen blir dyr.">
+  <meta name="theme-color" content="#0f766e">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="ikon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="ikon-180.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topp">
+    <div>
+      <h1>Elkollen</h1>
+      <p class="undertext" id="plats">SE3 · Jönköping</p>
+    </div>
+    <button class="knapp-ikon" id="oppna-installningar" aria-label="Inställningar">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.5 7.5 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+    </button>
+  </header>
+
+  <main id="innehall">
+    <section class="kort laddar" id="just-nu"><p>Hämtar dagens priser …</p></section>
+    <section id="varningar" aria-live="polite"></section>
+    <section class="kort" id="dagar" hidden></section>
+    <section class="kort" id="kostnad" hidden></section>
+    <section class="kort liten" id="om">
+      <h2>Så räknar Elkollen</h2>
+      <ul>
+        <li><strong>Totalpris</strong> är allt du betalar per kWh: spotpris och påslag (med moms), energiskatt och elnätets överföringsavgift. Fasta avgifter ingår i dygns- och månadskostnaderna.</li>
+        <li><strong>Normalt</strong> är medianpriset de senaste 30 dygnen. <em>Dyrt</em> är minst 40 % över normalt och <em>mycket dyrt</em> minst dubbelt så mycket.</li>
+        <li><strong>Varning</strong> ges bara när de dyra perioderna ett dygn kostar ditt hus minst 25 kr extra (går att ändra). Vanliga kvällstoppar ger ingen varning. Med den gränsen hade du fått ungefär en varning i veckan senaste året, fler på vintern.</li>
+        <li>Dagens och morgondagens priser är <strong>kända</strong> (publiceras kl 13 dagen före). Dagarna därefter är en <strong>uppskattning</strong> utifrån senaste priser och SMHI:s väderprognos. I test hittade den drygt hälften av de dyra dagarna 3–5 dygn i förväg, och ungefär 6 av 10 varningar stämde.</li>
+        <li>Husets förbrukning är <strong>beräknad</strong> från årsförbrukningen och utetemperaturen tills du laddar upp egna mätvärden.</li>
+      </ul>
+      <p class="undertext">Data: <a href="https://www.elprisetjustnu.se">Elpriset just nu.se</a> (ENTSO-E) och <a href="https://www.smhi.se/data">SMHI</a>. <a href="https://github.com/dalarud/elpris">Källkod och dokumentation</a>.</p>
+    </section>
+  </main>
+
+  <dialog id="installningar">
+    <form method="dialog" id="installningsform">
+      <h2>Inställningar</h2>
+      <fieldset>
+        <legend>Förbrukning</legend>
+        <label>Årsförbrukning (kWh) <input type="number" name="arsforbrukning" min="1000" step="10"></label>
+        <label>Varav laddhybrid (kWh/år) <input type="number" name="bilKwhAr" min="0" step="10"></label>
+        <label>Varav hushållsel utan värme (kWh/år) <input type="number" name="hushallKwhAr" min="0" step="10"></label>
+        <label>Varmvatten (kWh/dygn) <input type="number" name="varmvattenKwhDag" min="0" step="0.1"></label>
+        <p class="undertext" id="varme-text"></p>
+      </fieldset>
+      <fieldset>
+        <legend>Elnät</legend>
+        <label>Tariff
+          <select name="natTariff">
+            <option value="sakring">Säkringstariff</option>
+            <option value="tid">Tidstariff</option>
+          </select>
+        </label>
+        <label>Fast nätavgift, säkringstariff (kr/mån) <input type="number" name="natFastSakring" step="0.01"></label>
+        <label>Fast nätavgift, tidstariff (kr/mån) <input type="number" name="natFastTid" step="0.01"></label>
+        <label>Överföring, säkringstariff (öre/kWh) <input type="number" name="overforingSakring" step="0.01"></label>
+        <label>Överföring tidstariff, höglast / övrig tid (öre/kWh)
+          <span class="rad"><input type="number" name="overforingTidHog" step="0.01"><input type="number" name="overforingTidLag" step="0.01"></span>
+        </label>
+        <p class="undertext">Tidstariffen är dyrare vardagar 07–22 november–mars och billigare all övrig tid. Förifyllt med Jönköping Energi Nät, 20 A, priser från 1 september 2026 inkl. moms.</p>
+      </fieldset>
+      <fieldset>
+        <legend>Elhandel</legend>
+        <label>Påslag (öre/kWh exkl. moms) <input type="number" name="paslagOre" step="0.01"></label>
+        <label>Månadsavgift (kr inkl. moms) <input type="number" name="handelKrManad" step="1"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Mätvärden</legend>
+        <p class="undertext">Ladda upp en export (CSV eller text) med förbrukning per timme eller kvart från Jönköping Energis Mina sidor eller din elhandlare. Filen läses bara i den här webbläsaren och skickas ingenstans.</p>
+        <input type="file" id="matfil" accept=".csv,.txt,.tsv,text/csv,text/plain">
+        <p id="matstatus" class="undertext"></p>
+        <button type="button" class="knapp-sekundar" id="rensa-matvarden">Ta bort mätvärden</button>
+      </fieldset>
+      <fieldset>
+        <legend>Varningar</legend>
+        <label>Varna när dyra perioder kostar huset minst (kr extra per dygn) <input type="number" name="varningKr" min="0" step="5"></label>
+        <p class="undertext">Varningar skickas automatiskt kl 13 dagen före via appen <a href="https://ntfy.sh">ntfy</a>. Instruktioner finns i <a href="https://github.com/dalarud/elpris#varningar-i-mobilen">README</a>.</p>
+      </fieldset>
+      <div class="knappar">
+        <button type="button" class="knapp-sekundar" id="aterstall">Återställ</button>
+        <button value="spara" class="knapp">Spara</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

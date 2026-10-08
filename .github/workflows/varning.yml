@@ -1,0 +1,36 @@
+# Skickar en notis till mobilen (via ntfy) när morgondagen blir dyr för huset,
+# eller när ett dyrt dygn väntas om tre dagar. Körs två gånger per dag så att en
+# körning hamnar strax efter kl 13 svensk tid både sommar- och vintertid; skriptet
+# skickar bara från den körning som ligger i rätt tidsfönster.
+#
+# Inställning: lägg ämnesnamnet som hemlighet NTFY_TOPIC (Settings → Secrets and
+# variables → Actions). Utan den skrivs notisen bara ut i loggen.
+name: Varna för dyr el
+
+on:
+  schedule:
+    - cron: '40 11 * * *'
+    - cron: '40 12 * * *'
+  workflow_dispatch:
+    inputs:
+      tvinga:
+        description: 'Skicka även utanför tidsfönstret (för test)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  varna:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Kontrollera morgondagen och skicka varning
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          APP_URL: https://dalarud.github.io/elpris/
+        run: node tools/notis.mjs ${{ (github.event_name == 'schedule' || !inputs.tvinga) && '--schemalagd' || '' }}

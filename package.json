@@ -1,0 +1,14 @@
+{
+  "name": "elkollen",
+  "private": true,
+  "type": "module",
+  "description": "Överblick över elkostnaderna och varningar när elen blir dyr (SE3).",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "backtest": "node test/backtest.mjs",
+    "data": "node tools/bygg_data.mjs",
+    "notis": "node tools/notis.mjs",
+    "skarmbild": "node test/skarmbild.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

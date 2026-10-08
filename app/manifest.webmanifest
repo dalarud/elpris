@@ -1,0 +1,16 @@
+{
+  "name": "Elkollen",
+  "short_name": "Elkollen",
+  "description": "Överblick över dina elkostnader och varningar när elen blir dyr.",
+  "lang": "sv",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f5f1",
+  "theme_color": "#0f766e",
+  "icons": [
+    { "src": "ikon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "ikon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "ikon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

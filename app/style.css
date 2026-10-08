@@ -1,0 +1,167 @@
+:root {
+  --bg: #f6f5f1;
+  --yta: #ffffff;
+  --text: #1c1b18;
+  --dampad: #6b6860;
+  --linje: #e4e1d8;
+  --accent: #0f766e;
+  --billigt: #2f7d4f;
+  --billigt-bg: #e3f1e7;
+  --normalt: #6b6860;
+  --normalt-bg: #efede7;
+  --dyrt: #a15c07;
+  --dyrt-bg: #fbecd2;
+  --mycket: #b42318;
+  --mycket-bg: #fde3e0;
+  --skugga: 0 1px 2px rgb(0 0 0 / 0.05), 0 2px 8px rgb(0 0 0 / 0.04);
+  --knapp-text: #ffffff;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141412;
+    --yta: #1e1e1b;
+    --text: #edebe4;
+    --dampad: #a19d93;
+    --linje: #34322d;
+    --accent: #2dd4bf;
+    --billigt: #7dd3a0;
+    --billigt-bg: #1d3326;
+    --normalt: #b5b1a6;
+    --normalt-bg: #2a2925;
+    --dyrt: #f5b55b;
+    --dyrt-bg: #3b2a12;
+    --mycket: #ff8a80;
+    --mycket-bg: #4a1d19;
+    --skugga: none;
+    --knapp-text: #06201d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141412; --yta: #1e1e1b; --text: #edebe4; --dampad: #a19d93; --linje: #34322d; --accent: #2dd4bf;
+  --billigt: #7dd3a0; --billigt-bg: #1d3326; --normalt: #b5b1a6; --normalt-bg: #2a2925;
+  --dyrt: #f5b55b; --dyrt-bg: #3b2a12; --mycket: #ff8a80; --mycket-bg: #4a1d19; --skugga: none; --knapp-text: #06201d; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+a { color: var(--accent); }
+h1 { font-size: 1.35rem; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 1.05rem; margin: 0 0 0.6rem; }
+h3 { font-size: 0.95rem; margin: 0.9rem 0 0.4rem; }
+.undertext { color: var(--dampad); font-size: 0.85rem; margin: 0.2rem 0 0; }
+
+.topp {
+  display: flex; align-items: center; justify-content: space-between;
+  max-width: 640px; margin: 0 auto; padding: 16px 16px 8px;
+}
+main { max-width: 640px; margin: 0 auto; padding: 0 16px 32px; display: grid; gap: 12px; }
+
+.kort {
+  background: var(--yta); border: 1px solid var(--linje); border-radius: 14px;
+  padding: 16px; box-shadow: var(--skugga);
+}
+.kort.liten { font-size: 0.9rem; }
+.kort.liten ul { padding-left: 1.1rem; margin: 0.3rem 0 0.6rem; }
+.kort.liten li { margin-bottom: 0.35rem; }
+.laddar { color: var(--dampad); }
+
+/* Just nu */
+.nu-rad { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.nu-pris { font-size: 2.3rem; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; }
+.nu-enhet { font-size: 1rem; color: var(--dampad); font-weight: 400; }
+.nu-sammanfattning { margin: 0.6rem 0 0; font-size: 1rem; }
+
+.chip {
+  display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+  white-space: nowrap;
+}
+.chip.billigt { color: var(--billigt); background: var(--billigt-bg); }
+.chip.normalt { color: var(--normalt); background: var(--normalt-bg); }
+.chip.dyrt { color: var(--dyrt); background: var(--dyrt-bg); }
+.chip.mycket-dyrt { color: var(--mycket); background: var(--mycket-bg); }
+.chip.uppskattning { color: var(--dampad); background: transparent; border: 1px dashed var(--linje); font-weight: 500; }
+
+/* Varningar */
+#varningar { display: grid; gap: 10px; }
+#varningar:empty { display: none; }
+.varning {
+  background: var(--yta); border: 1px solid var(--linje); border-left: 5px solid var(--dyrt);
+  border-radius: 12px; padding: 12px 14px; box-shadow: var(--skugga);
+}
+.varning.mycket-dyrt { border-left-color: var(--mycket); }
+.varning.lugnt { border-left-color: var(--billigt); }
+.varning h3 { margin: 0 0 0.25rem; font-size: 1rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.varning p { margin: 0; }
+
+/* Kommande dagar */
+.dag { border-top: 1px solid var(--linje); padding: 10px 0; }
+.dag:first-of-type { border-top: 0; }
+.dag summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; }
+.dag summary::-webkit-details-marker { display: none; }
+.dag-namn { font-weight: 600; }
+.dag-kr { font-weight: 650; text-align: right; }
+.dag-info { color: var(--dampad); font-size: 0.85rem; }
+.dag-detalj { padding: 8px 0 2px; font-size: 0.92rem; }
+.dag-detalj p { margin: 0.25rem 0; }
+
+.remsa { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; margin-top: 6px; grid-column: 1 / -1; }
+.remsa span { height: 14px; border-radius: 3px; }
+.remsa .billigt { background: var(--billigt); opacity: 0.55; }
+.remsa .normalt { background: var(--normalt); opacity: 0.25; }
+.remsa .dyrt { background: var(--dyrt); }
+.remsa .mycket-dyrt { background: var(--mycket); }
+.remsa .forbi { opacity: 0.12; }
+.remsa-axel { grid-column: 1 / -1; display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--dampad); }
+
+/* Kostnad */
+.siffror { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.siffra { background: var(--bg); border-radius: 10px; padding: 10px 12px; }
+.siffra .v { font-size: 1.35rem; font-weight: 650; }
+.siffra .e { color: var(--dampad); font-size: 0.8rem; }
+.fordelning { display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin: 6px 0; }
+.fordelning span:nth-child(1) { background: var(--accent); }
+.fordelning span:nth-child(2) { background: var(--dyrt); opacity: 0.75; }
+.fordelning span:nth-child(3) { background: var(--normalt); opacity: 0.5; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.85rem; color: var(--dampad); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { text-align: right; padding: 6px 4px; border-bottom: 1px solid var(--linje); }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--dampad); font-weight: 500; font-size: 0.8rem; }
+tfoot th { color: var(--text); font-weight: 650; font-size: 0.9rem; border-bottom: 0; }
+.tabellrulle { overflow-x: auto; }
+
+/* Inställningar */
+.knapp-ikon { background: none; border: 0; color: var(--text); padding: 8px; border-radius: 10px; cursor: pointer; }
+.knapp-ikon:hover { background: var(--linje); }
+dialog {
+  border: 1px solid var(--linje); border-radius: 16px; padding: 0; width: min(560px, calc(100vw - 24px));
+  background: var(--yta); color: var(--text);
+}
+dialog::backdrop { background: rgb(0 0 0 / 0.4); }
+dialog form { padding: 18px; display: grid; gap: 12px; max-height: 85vh; overflow-y: auto; }
+fieldset { border: 1px solid var(--linje); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; margin: 0; }
+legend { font-weight: 600; padding: 0 4px; }
+label { display: grid; gap: 4px; font-size: 0.9rem; }
+input, select {
+  font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--linje);
+  background: var(--bg); color: var(--text); width: 100%;
+}
+.rad { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.knappar { display: flex; justify-content: flex-end; gap: 8px; }
+.knapp, .knapp-sekundar {
+  font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 10px; cursor: pointer; border: 1px solid transparent;
+}
+.knapp { background: var(--accent); color: var(--knapp-text); }
+.knapp-sekundar { background: transparent; color: var(--text); border-color: var(--linje); }
+.fel { color: var(--mycket); }

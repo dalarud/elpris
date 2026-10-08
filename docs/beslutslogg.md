@@ -13,7 +13,14 @@ Här samlas beslut (B), antaganden (A) och öppna frågor (F) i den ordning de u
 | B5 | 2026-10-08 | Analysskripten skrivs i Python (pandas) och prisdatat checkas in i `data/`. | Gör beräkningarna reproducerbara och möjliga att återanvända för utvärderingen i steg 6. | Bara länka till källan (riskerar att data ändras eller försvinner). |
 | B6 | 2026-10-08 | Räkna med **Jönköping Energis säkringstariff** (fr.o.m. 2026-09-01) som nuläge och tidstariffen som alternativ. Effektavgiften räknas inte med. | Jönköping Energi tog bort effektavgiften för ≤ 63 A den 1 sept 2026, automatiskt (pressmeddelande 31 mars 2026, prislista). Användarens bild av en effektavgift bygger troligen på fakturor från före september. | Modellera effektavgift. |
 | B7 | 2026-10-08 | Föreslå **ingen egen styrning** av värmepump eller laddbox i v1. Guida i stället till inbyggd styrning (Thermia Smart Price, laddboxens prisstyrning) och följ upp den. | Inbyggd styrning är gratis och fångar nästan hela värdet. Egen styrning ger 0–400 kr/år mer, kräver hårdvara och innebär en risk för komforten. | Modbus- eller API-styrning av Calibra (idé D1). *Väntar på avstämning.* |
-| B8 | 2026-10-08 | Föreslagen teknik: statisk webbapp på GitHub Pages, gemensam JS-kärna, notiser via GitHub Actions + ntfy. | Ingen server, gratis, testbar. Repot är publikt. | Native app, egen server, Home Assistant. *Väntar på avstämning.* |
+| B8 | 2026-10-08 | Teknik: statisk webbapp på GitHub Pages, gemensam JS-kärna, notiser via GitHub Actions + ntfy. | Ingen server, gratis, testbar. Repot är publikt. | Native app, egen server, Home Assistant. |
+| B9 | 2026-10-08 | **Ny riktning efter användarens svar:** appen ska ge överblick över elkostnaderna och varna när elen blir dyr. Engångsguiden tas bort ur appen. | Användaren: "Det var inte riktigt det jag tänkte mig." | Engångsguide och besked per maskin (steg 4). |
+| B10 | 2026-10-08 | Visa **totalpris** (allt inräknat) och **kronor per dygn för huset**, inte spotpris i öre. | Det är det användaren betalar och det som går att jämföra. | Spotpris (det andra appar visar). |
+| B11 | 2026-10-08 | **Prisuppskattning 2–5 dygn fram** med väder från SMHI och en enkel log-linjär modell. Visas inte längre fram än 5 dygn. | Bättre än naiva alternativ till och med 5 dygn, inte efter (resultat_prismodell.md). | Ingen prognos alls; betald prognos; maskininlärningsmodell (svårare att granska och köra i webbläsaren). |
+| B12 | 2026-10-08 | Väderhistorik från **SMHI:s stationer**. | Open-Meteo begränsade antalet anrop från utvecklingsmiljön. SMHI har både historik och prognos och tillåter anrop från webbläsaren. | Open-Meteo. |
+| B13 | 2026-10-08 | Varna bara när dyra perioder kostar huset **minst 25 kr extra** per dygn (inställbart). | Utan gräns blev det 179 varningsdagar per år; med 25 kr blir det 64 som ändå fångar cirka 75 % av merkostnaden (resultat_varningar.md). | Procentgräns enbart; varna för varje topp. |
+| B14 | 2026-10-08 | Notis kl 13 för morgondagen (känt pris) och **förvarning exakt 3 dygn före** (uppskattning). | Varje dyrt dygn får högst två notiser utan att tjänsten behöver komma ihåg vad den skickat. | Notis varje gång prognosen ändras. |
+| B15 | 2026-10-08 | Förbrukningen **beräknas** från årsförbrukning och temperatur tills mätvärden laddas upp. Mätvärden läses bara i webbläsaren. | Ger överblick direkt utan integration. Integritet. | Kräva mätvärden innan appen fungerar. |
 
 ## Kända fakta om hushållet (från användaren 2026-10-08)
 
@@ -50,6 +57,7 @@ Här samlas beslut (B), antaganden (A) och öppna frågor (F) i den ordning de u
 | F3 | *Delvis besvarad:* laddbox med prisstyrning. Märke, inställning och körning per dag är okända. | Avgör om appen kan varna när laddboxen kommer ladda dyrt. |
 | ~~F4~~ | ~~Säkring och förbrukning?~~ **Besvarad:** 20 A, 20 520 kWh/år. | |
 | F6 | Finns mätvärden per timme/kvart att exportera från Mina sidor? Gamla fakturor med effekt i kW? | Facit, tariffval (A2) och 16 A-utredning (A4) på riktiga data. |
-| F7 | Notiser via ntfy eller e-post, bara vid avvikelse eller dagligen? | Notistjänstens utformning. |
-| F8 | Är det okej att repot är publikt? | Hosting (GitHub Pages). |
+| F7 | Notiser via ntfy eller e-post? *(Antaget: ntfy. Bara vid varning, se B13–B14.)* | Notistjänstens utformning. |
+| F8 | Är det okej att repot är publikt? *(Antaget: ja, inga personuppgifter i repot.)* | Hosting (GitHub Pages). |
+| F9 | Får jag slå ihop till `main` och ska Pages slås på? | Krävs för att appen ska bli nåbar och notiserna gå. |
 | F5 | Hur kvartspris och månadspris jämförs för en ostyrd profil (hypotes H3). | Avgör om avtalsvalet är rätt för dig. |
