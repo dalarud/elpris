@@ -81,8 +81,7 @@ main > * { min-width: 0; }   /* låt rader med många rutor rulla i stället fö
 .hoger { text-align: right; }
 .dampad { color: var(--dampad); font-weight: 400; }
 .manad-jamf { margin: 6px 0 0; font-weight: 600; font-size: 0.95rem; }
-.manad-jamf.upp { color: var(--mycket); }
-.manad-jamf.ner { color: var(--billigt); }
+.manad-jamf { color: var(--dampad); font-weight: 500; }
 
 /* Läget nu */
 .laget { padding: 12px 16px; }
@@ -94,6 +93,8 @@ main > * { min-width: 0; }   /* låt rader med många rutor rulla i stället fö
 .prick.normalt { background: var(--normalt); opacity: 0.45; }
 .prick.dyrt { background: var(--dyrt); }
 .prick.mycket-dyrt { background: var(--mycket); }
+.prick.lite-dyrt { background: var(--dyrt); opacity: 0.5; }
+.prick.lite-billigt { background: var(--billigt); opacity: 0.5; }
 
 /* Dra ner-läge */
 #draner { display: grid; gap: 10px; }
@@ -105,8 +106,8 @@ main > * { min-width: 0; }   /* låt rader med många rutor rulla i stället fö
 .draner .rubrik { font-weight: 650; font-size: 1.05rem; }
 .draner.liten { padding: 10px 14px; }
 .draner.liten .rubrik { font-size: 0.98rem; }
-.draner.liten summary { grid-template-columns: auto 1fr; align-items: baseline; column-gap: 6px; }
-.draner.liten summary::after { content: '›'; grid-column: 3; color: var(--dampad); font-size: 1.2rem; transition: transform 0.15s; }
+.draner.liten summary { grid-template-columns: 1fr auto; column-gap: 6px; }
+.draner.liten summary::after { content: '›'; grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--dampad); font-size: 1.2rem; transition: transform 0.15s; }
 .draner.liten[open] summary::after { transform: rotate(90deg); }
 .draner[open] > p:first-of-type { margin-top: 8px; }
 .draner > p { margin: 0 0 6px; font-size: 0.9rem; }

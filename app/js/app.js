@@ -30,6 +30,15 @@ function laddaInstallningar() {
 }
 
 let inst = laddaInstallningar();
+
+// Ta bort bockar och varningsminnen för dygn som passerat.
+try {
+  const grans = K.laggTillDagar(K.dagensDatum(), -2);
+  for (const k of Object.keys(localStorage)) {
+    const m = /^(drana|varnad):(\d{4}-\d{2}-\d{2})/.exec(k);
+    if (m && m[2] < grans) localStorage.removeItem(k);
+  }
+} catch { /* lagring blockerad */ }
 let matvarden = lasLokalt('matvarden', null);
 let valdSyssla = lasLokalt('syssla', 'tvatt');
 let senast = null;   // data från senaste körningen, för att rita om utan att hämta igen
@@ -67,7 +76,6 @@ async function start() {
     const kostnadDygn = (d) => (tim[d] ? K.dygnskostnad(d, tim[d], tempFor(d), inst, matvarden?.dagar?.[d] ?? null) : null);
 
     const berikade = K.berika([pIdag, pImorgon].filter(Boolean).flat(), ref, inst);
-    const framat = berikade.filter((i) => i.t0 + i.langd * 60e3 > nu.ms);
     const kwhTim = {}, delar = {};
     for (const d of [idag, pImorgon ? imorgon : null].filter(Boolean)) {
       kwhTim[d] = kostnadDygn(d).kwhTim;
@@ -77,7 +85,17 @@ async function start() {
     for (const [d, v] of Object.entries(tim)) { const m = K.medel(v); if (Number.isFinite(m)) dygnspris[d] = m; }
     const prognos = modell ? prisprognos(modell, dygnspris, vader.modell, pImorgon ? imorgon : idag, idag) : [];
 
-    senast = { idag, nu, pImorgon, tim, ref, tempFor, kostnadDygn, berikade, framat, kwhTim, delar, prognos };
+    // Dyra perioder räknas på hela kända dygn, så att de (och bockarna) inte flyttas när
+    // kvartar passerar. Om ett dygn är värt en varning avgörs också på hela dygnet, och
+    // ett dygn som varnats en gång fortsätter att vara varnat.
+    const allaPerioder = K.dyraPerioder(berikade);
+    const perioder = allaPerioder.filter((p) => Date.parse(p.slut) > nu.ms);
+    const dygn = K.dygnsvarningar(allaPerioder, kwhTim, ref, inst).map((d) => {
+      const varna = d.varna || lasLokalt(`varnad:${d.datum}`, false);
+      if (varna) sparaLokalt(`varnad:${d.datum}`, true);
+      return { ...d, varna };
+    });
+    senast = { idag, nu, pImorgon, tim, ref, tempFor, kostnadDygn, berikade, kwhTim, delar, prognos, perioder, dygn };
     visaManad(senast);
     visaLaget(senast);
     visaDraner(senast);
@@ -128,8 +146,9 @@ function visaManad(s) {
   const m = manadsSiffror(s);
   const namn = MANADER[+m.manad.slice(5, 7) - 1];
   const diff = m.fjolKomplett ? m.prognos - m.fjolHela : null;
-  const jamforelse = diff === null || Math.abs(diff) < 50 ? ''
-    : `<p class="manad-jamf ${diff > 0 ? 'upp' : 'ner'}">${diff > 0 ? '▲' : '▼'} ≈ ${K.kr(Math.abs(diff))} ${diff > 0 ? 'mer' : 'mindre'} än ${namn} i fjol (${K.kr(m.fjolHela)})</p>`;
+  // Bara skillnader på minst 5 % visas, i neutral färg: det är marknaden, inget du gjort fel.
+  const jamforelse = diff === null || Math.abs(diff) < 0.05 * m.fjolHela ? ''
+    : `<p class="manad-jamf">≈ ${K.kr(Math.abs(diff))} ${diff > 0 ? 'mer' : 'mindre'} än ${namn} i fjol (${K.kr(m.fjolHela)})</p>`;
   $('#manad').classList.remove('laddar');
   $('#manad').innerHTML = `
     <p class="etikett">${stor(namn)}</p>
@@ -143,28 +162,28 @@ function visaManad(s) {
 
 // ---------------------------------------------------------- 2. läget nu ----
 
-function visaLaget({ berikade, framat, ref, idag, nu }) {
-  const aktuellt = berikade.find((i) => i.t0 <= nu.ms && nu.ms < slutMs(i)) ?? framat[0] ?? berikade[0];
-  const dyr = (i) => i.niva === 'dyrt' || i.niva === 'mycket-dyrt';
+function visaLaget({ berikade, perioder, ref, idag, nu }) {
+  const aktuellt = berikade.find((i) => i.t0 <= nu.ms && nu.ms < slutMs(i)) ?? berikade[0];
+  // Samma perioder som Dra ner, så att de två aldrig säger emot varandra.
+  const pagar = perioder.find((p) => Date.parse(p.start) <= nu.ms && nu.ms < Date.parse(p.slut));
+  const nasta = perioder.find((p) => Date.parse(p.start) > nu.ms);
+  const tider = (p) => `${narDag(p.datum, idag)}${p.franTxt}–${p.tillTxt}`;
   let rubrik, rad, klass;
-  if (dyr(aktuellt)) {
-    const slut = framat.slice(Math.max(0, framat.indexOf(aktuellt))).find((i) => !dyr(i));
-    klass = aktuellt.niva;
-    rubrik = aktuellt.niva === 'mycket-dyrt' ? 'Mycket dyrt nu' : 'Dyrt nu';
-    rad = slut ? `Sjunker ${narDag(slut.datum, idag)}kl ${tid(slut)}.` : 'Dra ner där du kan.';
+  if (pagar) {
+    klass = pagar.niva;
+    rubrik = pagar.niva === 'mycket-dyrt' ? 'Mycket dyrt nu' : 'Dyrt nu';
+    rad = `Dyrt till kl ${pagar.tillTxt}.${nasta ? ` Dyrt igen ${tider(nasta)}.` : ''}`;
   } else {
-    const nasta = framat.find((i) => i !== aktuellt && dyr(i));
     const kvot = aktuellt.total / ref.totalMedian;
-    klass = aktuellt.niva === 'billigt' ? 'billigt' : 'normalt';
-    rubrik = aktuellt.niva === 'billigt' ? 'Billigt nu'
-      : kvot >= 1.15 ? 'Lite dyrt nu' : kvot <= 0.9 ? 'Lite billigt nu' : 'Normalt pris nu';
-    rad = nasta ? `Dyrt från ${narDag(nasta.datum, idag)}kl ${tid(nasta)}.` : 'Inga dyra perioder framför dig.';
+    klass = aktuellt.niva === 'billigt' ? 'billigt' : kvot >= 1.15 ? 'lite-dyrt' : kvot <= 0.9 ? 'lite-billigt' : 'normalt';
+    rubrik = { billigt: 'Billigt nu', 'lite-dyrt': 'Lite dyrt nu', 'lite-billigt': 'Lite billigt nu', normalt: 'Normalt pris nu' }[klass];
+    rad = nasta ? `Dyrt ${tider(nasta)}.` : 'Inga dyra perioder framför dig.';
   }
   $('#laget').hidden = false;
   $('#laget').className = `kort laget ${klass}`;
   $('#laget').innerHTML = `
-    <div class="laget-rad"><span class="prick ${klass}"></span><strong>${rubrik}</strong><span class="laget-pris">${K.tal(aktuellt.total, 2)} kr/kWh</span></div>
-    <p class="laget-text">${esc(rad)} <span class="dampad">Normalt ${K.tal(ref.totalMedian, 2)} kr.</span></p>`;
+    <div class="laget-rad"><span class="prick ${klass}"></span><strong>${rubrik}</strong><span class="laget-pris">${K.krKwh(aktuellt.total)}</span></div>
+    <p class="laget-text">${esc(rad)} <span class="dampad">Normalt ${K.kr2(ref.totalMedian)}.</span></p>`;
 }
 
 // ------------------------------------------------------- 3. dra ner-läge ----
@@ -174,38 +193,42 @@ function bockade(nyckel) { return new Set(lasLokalt(`drana:${nyckel}`, [])); }
 // Vilka Dra ner-kort som är utfällda (överlever omritning).
 const oppnaDraner = new Set();
 
-function visaDraner({ framat, kwhTim, delar, ref, idag, prognos, pImorgon }) {
+function visaDraner({ dygn, perioder, berikade, delar, ref, idag, nu, prognos, pImorgon }) {
   const kort = [];
-  // Dygn som är värda en varning (≥ varningKr) visas utfällda. Annars får bara nästa
-  // dyra period en hopfälld rad, så att stödet finns ett tryck bort utan att ta plats.
-  const dygn = K.dygnsvarningar(K.dyraPerioder(framat), kwhTim, ref, inst);
-  const perioder = dygn.flatMap((d) => d.perioder.map((p) => ({ p, varna: d.varna })));
-  const visas = perioder.filter((x, i) => x.varna || i === 0);
-  for (const { p, varna } of visas) {
-    const atgarder = K.dranerAtgarder(p, framat, delar, ref, idag);
+  // Ett kort per dygn med dyra perioder kvar. Dygn värda en varning (≥ varningKr,
+  // räknat på hela dygnet) är utfällda, övriga en hopfälld rad ett tryck bort.
+  for (const d of dygn) {
+    const kvar = perioder.filter((p) => p.datum === d.datum);
+    if (!kvar.length) continue;
+    const atgarder = K.dranerAtgarder(kvar, berikade, delar, ref, idag, nu.ms);
     const summa = atgarder.reduce((a, x) => a + x.sparar, 0);
     if (!atgarder.length || summa < 2) continue;
-    const nyckel = p.start;
+    const nyckel = d.datum;
     const klara = bockade(nyckel);
     const gjort = atgarder.filter((x) => klara.has(x.id)).reduce((a, x) => a + x.sparar, 0);
-    const oppen = varna || oppnaDraner.has(nyckel);
-    kort.push(`<details class="draner ${p.niva}${varna ? '' : ' liten'}" data-period="${esc(nyckel)}"${oppen ? ' open' : ''}>
-      <summary><span class="rubrik">${varna ? 'Dra ner' : 'Dyrt'} ${esc(K.dagnamn(p.datum, idag))} ${p.franTxt}–${p.tillTxt}</span>
-        <span class="dampad">${varna ? `upp till ${K.krKwh(p.max)}` : `– dra ner och spara ≈ ${K.kr(summa)}`}</span></summary>
-      <p class="dampad">Upp till ${K.krKwh(p.max)}, normalt ${K.tal(ref.totalMedian, 2)} kr. Bocka av det du gör:</p>
+    const oppen = d.varna || oppnaDraner.has(nyckel);
+    const tider = kvar.map((p) => `${p.franTxt}–${p.tillTxt}`).join(' och ');
+    const max = Math.max(...kvar.map((p) => p.max));
+    kort.push(`<details class="draner ${d.niva}${d.varna ? '' : ' liten'}" data-period="${esc(nyckel)}"${oppen ? ' open' : ''}>
+      <summary><span class="rubrik">${d.varna ? 'Dra ner' : 'Dyrt'} ${esc(K.dagnamn(d.datum, idag))} ${tider}</span>
+        <span class="dampad">${d.varna ? '' : 'Dra ner och spara '}≈&nbsp;${K.kr(summa)}${d.varna ? ' att spara' : ''}</span></summary>
+      <p class="dampad">Upp till ${K.krKwh(max)}, normalt ${K.kr2(ref.totalMedian)}. Bocka av det du gör:</p>
       <ul class="checklista">${atgarder.map((a) => `
         <li><label><input type="checkbox" data-atgard="${a.id}"${klara.has(a.id) ? ' checked' : ''}>
           <span class="atgard"><strong>${esc(a.text)}</strong><span class="dampad">${esc(a.detalj)}</span></span>
-          <span class="sparar">≈ ${K.kr(Math.max(1, a.sparar))}</span></label></li>`).join('')}
+          <span class="sparar">≈&nbsp;${K.kr(a.sparar)}</span></label></li>`).join('')}
       </ul>
-      <p class="summa">${gjort > 0 ? `Du sparar ≈ ${K.kr(gjort)} av möjliga ${K.kr(summa)}.` : `Gör du allt sparar du ≈ ${K.kr(summa)}.`} <span class="dampad">Uppskattning.</span></p>
+      <p class="summa">${gjort > 0 ? `Du sparar ≈&nbsp;${K.kr(gjort)} av möjliga ${K.kr(summa)}.` : `Gör du allt sparar du ≈&nbsp;${K.kr(summa)}.`} <span class="dampad">Uppskattning.</span></p>
     </details>`);
   }
   // Uppskattade dyra dygn längre fram: en kort rad, ingen checklista än.
   const kommande = prognos.filter((p) => p.dyr && K.dagarMellan(idag, p.datum) >= (pImorgon ? 2 : 1));
   if (kommande.length) {
     const dagar = kommande.map((p) => K.dagnamn(p.datum, idag)).join(', ');
-    kort.push(`<p class="forvarning"><strong>Troligen dyrt ${esc(dagar)}</strong> – planera tvätt och bastu till dagen innan. <span class="dampad">Uppskattning; exakta priser kl 13 dagen före.</span></p>`);
+    // Föreslå den sista dagen före det första dyra dygnet (om den inte själv är dyr eller redan passerad).
+    const fore = K.laggTillDagar(kommande[0].datum, -1);
+    const plan = fore > idag && !kommande.some((p) => p.datum === fore) ? ` – planera tvätt och bastu till ${K.dagnamn(fore, idag)}` : '';
+    kort.push(`<p class="forvarning"><strong>Troligen dyrt ${esc(dagar)}</strong>${esc(plan)}. <span class="dampad">Uppskattning; exakta priser kl 13 dagen före.</span></p>`);
   }
   $('#draner').innerHTML = kort.join('');
 }
@@ -229,29 +252,38 @@ document.addEventListener('change', (e) => {
 
 // ---------------------------------------------------- 4. när ska jag köra? ----
 
-function visaSysslor({ framat, nu, idag }) {
+function visaSysslor({ berikade, nu, idag }) {
   const s = K.SYSSLOR.find((x) => x.id === valdSyssla) ?? K.SYSSLOR[0];
-  const r = K.bastaTid(framat, nu.ms, s);
+  const r = K.planera(berikade, nu.ms, s);
   const nar = (c) => `${K.narOrd(c.klocka, idag)} kl ${c.klocka.txt}`;
+  const timer = (c) => (s.timer && c.om > 0
+    ? `<p class="timer">Start ${c.klocka.txt}, klar ca ${c.slut.txt} – ställ fördröjd start på <strong>${c.om} h</strong></p>` : '');
   let svar;
-  if (!r) svar = '<p>Priserna räcker inte för att räkna ut det just nu.</p>';
-  else if (r.sparar < 1) {
-    svar = `<p class="besked">Kör när det passar dig</p>
-      <p class="dampad">${s.namn} nu kostar ${K.kr2(r.nu.kr)}. Bästa tiden sparar bara ${K.tal(Math.max(0, r.sparar) * 100)} öre.</p>`;
-  } else {
-    const timer = s.timer && r.bast.om > 0 ? `<p class="timer">Ställ fördröjd start på <strong>${r.bast.om} h</strong></p>` : '';
-    const dagAlt = !s.dagtid && r.dagtid && r.dagtid.om !== r.bast.om && r.nu.kr - r.dagtid.kr >= 1
-      ? `<p class="dampad">Hellre dagtid? ${stor(nar(r.dagtid))}: ${K.kr2(r.dagtid.kr)}.</p>` : '';
+  if (!r || !r.bast) {
+    svar = `<p>${!r ? 'Priserna räcker inte för att räkna ut det just nu.' : `Ingen ledig dagtid inom de kända priserna. Morgondagens priser kommer kl 13.`}</p>`;
+  } else if (!r.nu) {
+    // Bastu eller ugn utanför dagtid: bara bästa tid, ingen jämförelse med "nu".
+    svar = `<p class="besked">${stor(nar(r.bast))}</p><p>${K.kr2(r.bast.kr)} – billigaste dagtiden inom de kända priserna.</p>`;
+  } else if (r.sparar >= K.GRANS_KR) {
+    const dagAlt = r.dagAlt
+      ? `<p class="dampad">Hellre på dagen? ${stor(nar(r.dagAlt))}: ${K.kr2(r.dagAlt.kr)} (${K.tal(Math.max(0, r.dagAlt.kr - r.bast.kr) * 100)} öre mer).</p>` : '';
     svar = `<p class="besked">${stor(nar(r.bast))}</p>
       <p>${K.kr2(r.bast.kr)} i stället för ${K.kr2(r.nu.kr)} nu – <strong>du sparar ${K.kr2(r.sparar)}</strong></p>
-      ${timer}${dagAlt}`;
+      ${timer(r.bast)}${dagAlt}`;
+  } else if (r.undvikFran) {
+    const u = r.undvikFran;
+    svar = `<p class="besked">Kör nu – eller före kl ${u.klocka.txt}</p>
+      <p class="dampad">${s.namn} nu kostar ${K.kr2(r.nu.kr)}. Startar du ${nar(u)} kostar det ${K.kr2(u.kr)}.</p>`;
+  } else {
+    svar = `<p class="besked">Kör när det passar dig</p>
+      <p class="dampad">${s.namn} nu kostar ${K.kr2(r.nu.kr)}. ${r.bast === r.nu ? 'Nu är den billigaste tiden.' : `Bästa tiden sparar bara ${K.tal(Math.max(0, r.sparar) * 100)} öre.`}</p>`;
   }
   $('#sysslor').hidden = false;
   $('#sysslor').innerHTML = `
     <h2>När ska jag köra?</h2>
     <div class="knapprad">${K.SYSSLOR.map((x) => `<button type="button" class="syssla${x.id === s.id ? ' vald' : ''}" data-syssla="${x.id}" aria-pressed="${x.id === s.id}">${x.namn}</button>`).join('')}</div>
     <div class="svar">${svar}</div>
-    <p class="undertext">${s.namn}: ca ${K.tal(s.kwh, 1)} kWh på ${s.timmar} h (uppskattning)${s.dagtid ? ', bara dagtid 07–20' : ''}.</p>`;
+    <p class="undertext">${s.namn}: ca ${K.tal(s.kwh, 1)} kWh på ${s.timmar} h (uppskattning)${s.dagtid ? `, start tidigast ${String(K.DAG_START).padStart(2, '0')}, klar senast ${K.KLAR_SENAST}` : ''}. Högst 24 h fram.</p>`;
 }
 
 document.addEventListener('click', (e) => {
@@ -283,7 +315,7 @@ function visaDagar({ idag, pImorgon, berikade, kostnadDygn, prognos, tempFor }) 
       <span class="prick ${x.niva}"></span>
       <span class="dagkr">${x.uppsk ? '≈' : ''}${K.tal(x.kr)}</span></div>`).join('')}
     </div>
-    <p class="undertext">Kronor per dygn för huset. Gul eller röd prick = dyra timmar. ≈ = uppskattning.</p>`;
+    <p class="undertext">Kronor per dygn för huset. Grön = billigt, gul/röd = dyra timmar, ≈ = uppskattning.</p>`;
 }
 
 // ------------------------------------------------------------------ 6. mer ----

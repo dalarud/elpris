@@ -35,6 +35,14 @@ async function historikMedFil(idag) {
   return timprisHistorik(fran, till, inst.elomrade, idag, { forladdat: lasJson(`priser_${inst.elomrade}.json`), maxHamtningar: 40 });
 }
 
+/** När notisen räknas: nu, eller kl 13:40 det simulerade dygnet om nu ligger utanför dess priser. */
+function beslutstid(pIdag, nuMs = Date.now()) {
+  const sista = pIdag[pIdag.length - 1];
+  if (nuMs >= pIdag[0].t0 && nuMs < sista.t0 + sista.langd * 60e3) return nuMs;
+  const kl1330 = pIdag.find((i) => i.timme === 13 && i.minut === 30) ?? pIdag[0];
+  return kl1330.t0 + 10 * 60e3;
+}
+
 export async function byggNotiser(idag, { kallor = {} } = {}) {
   const imorgon = K.laggTillDagar(idag, 1);
   const hamtaPris = kallor.priserDygn ?? priserDygn;
@@ -59,12 +67,12 @@ export async function byggNotiser(idag, { kallor = {} } = {}) {
     const tider = dygn.perioder.map((p) => `${p.franTxt}–${p.tillTxt}`).join(' och ');
     const max = Math.max(...dygn.perioder.map((p) => p.max));
     const extra = dygn.extra;
-    // Samma konkreta åtgärder som Dra ner-läget i appen, för den dyraste perioden.
-    const dyrast = [...dygn.perioder].sort((a, b) => b.medelTotal - a.medelTotal)[0];
+    // Samma konkreta åtgärder (och samma motor) som Dra ner-läget i appen.
     const delar = { [imorgon]: K.forbrukningDygn(imorgon, tempFor(imorgon), inst, tim[imorgon]).delar };
-    const atgarder = K.dranerAtgarder(dyrast, berikade, delar, ref, idag).slice(0, 3);
+    const allaKanda = K.berika([...pIdag, ...pImorgon], ref, inst);
+    const atgarder = K.dranerAtgarder(dygn.perioder, allaKanda, delar, ref, idag, beslutstid(pIdag, kallor.nuMs)).slice(0, 3);
     const gor = atgarder.length
-      ? ` Gör så här: ${atgarder.map((x) => `${x.text.toLowerCase()} (≈ ${K.kr(Math.max(1, x.sparar))})`).join(', ')}.`
+      ? ` Gör så här: ${atgarder.map((x) => `${x.text.toLowerCase()} ${x.id === 'varme' ? x.detalj.split(' – ')[0] : `– ${x.nar}`} (≈ ${K.kr(x.sparar)})`).join('; ')}.`
       : ` ${K.RAD[varst]}`;
     notiser.push({
       titel: `${K.NIVA_EL[varst]} i morgon ${tider}`,

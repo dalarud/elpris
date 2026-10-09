@@ -216,21 +216,21 @@ test('fonsterKostnad: kostnad för en syssla över delar av kvartar, null utanf�
   assert.equal(K.fonsterKostnad(ber, Date.parse('2026-01-14T23:30:00+01:00'), 2, 1), null);
 });
 
-test('bastaTid: hittar billigaste start i hela timmar och föreslår fördröjd start', () => {
+test('planera: hittar billigaste start i hela timmar och föreslår fördröjd start', () => {
   const spot = new Array(24).fill(1.0); spot[13] = spot[14] = 0.1;     // billigt 13–15
   const { ber } = enDag('2026-01-14', spot);
   const nu = Date.parse('2026-01-14T08:00:00+01:00');
-  const r = K.bastaTid(ber, nu, K.SYSSLOR.find((s) => s.id === 'tvatt'));
+  const r = K.planera(ber, nu, K.SYSSLOR.find((s) => s.id === 'tvatt'));
   assert.equal(r.bast.om, 5);
   assert.equal(r.bast.klocka.txt, '13:00');
   assert.ok(r.sparar > 1);
 });
 
-test('bastaTid: bastu föreslås aldrig mitt i natten', () => {
+test('planera: bastu föreslås aldrig mitt i natten', () => {
   // Billigast kl 02–04, näst billigast kl 12–14: bastun ska föreslås kl 12, inte mitt i natten.
   const spot = new Array(24).fill(1.0); spot[2] = spot[3] = 0.1; spot[12] = spot[13] = 0.4;
   const { ber } = enDag('2026-01-14', spot);
-  const r = K.bastaTid(ber, Date.parse('2026-01-14T00:00:00+01:00'), K.SYSSLOR.find((s) => s.id === 'bastu'));
+  const r = K.planera(ber, Date.parse('2026-01-14T00:00:00+01:00'), K.SYSSLOR.find((s) => s.id === 'bastu'));
   assert.equal(r.bast.klocka.txt, '12:00');
 });
 
@@ -239,11 +239,55 @@ test('dranerAtgarder: konkreta åtgärder sorterade efter besparing, bara de som
   const { ber, ref } = enDag('2026-01-14', spot);
   const p = K.dyraPerioder(ber)[0];
   const delar = { '2026-01-14': K.forbrukningDygn('2026-01-14', -5, inst, spot).delar };
-  const a = K.dranerAtgarder(p, ber, delar, ref, '2026-01-14');
+  const a = K.dranerAtgarder(p, ber, delar, ref, "2026-01-14", Date.parse("2026-01-14T12:00:00+01:00"));
   assert.equal(a[0].id, 'bastu');
   assert.ok(a.some((x) => x.id === 'varme'));
   assert.ok(a.every((x, i) => i === 0 || a[i - 1].sparar >= x.sparar));
-  assert.ok(a.every((x) => x.sparar >= 0.5));
+  assert.ok(a.every((x) => x.sparar >= K.GRANS_KR));
+  assert.match(a.find((x) => x.id === "varme").detalj, /sänk kl 17:00, höj igen kl 20:00/);
+});
+
+test('planera: timermaskin i hela timmar från nu, högst 24 h fram', () => {
+  const spot = new Array(24).fill(1.0); spot[13] = spot[14] = 0.1;
+  const a = enDag('2026-01-14', spot), b = enDag('2026-01-15', new Array(24).fill(0.05));
+  const ber = [...a.ber, ...b.ber];
+  const nu = Date.parse('2026-01-14T08:05:00+01:00');
+  const r = K.planera(ber, nu, K.SYSSLOR.find((s) => s.id === 'tvatt'));
+  // I morgon är billigare hela dygnet, men starter prövas bara 24 h fram.
+  assert.equal(r.kandidater.length, 25);
+  assert.equal(r.bast.klocka.datum, '2026-01-15');
+  assert.ok(r.kandidater.every((c) => c.startMs - nu <= 24 * 3600e3));
+  assert.ok(r.kandidater.every((c) => (c.startMs - nu) % 3600e3 === 0));
+});
+
+test('planera: bastu startar dagtid och är klar senast 21, i hela kvartar', () => {
+  const spot = new Array(24).fill(1.0); spot[2] = spot[3] = 0.1; spot[20] = spot[21] = 0.2; spot[12] = spot[13] = 0.6;
+  const { ber } = enDag('2026-01-14', spot);
+  const r = K.planera(ber, Date.parse('2026-01-14T06:07:00+01:00'), K.SYSSLOR.find((s) => s.id === 'bastu'));
+  assert.equal(r.nu, null);                 // 06:07 är inte dagtid
+  assert.equal(r.bast.klocka.txt, '12:00'); // inte 02 (natt) och inte 20 (klar 22)
+  assert.ok(r.kandidater.every((c) => c.klocka.minut % 15 === 0));
+});
+
+test('planera: säger när det blir dyrt om man väntar', () => {
+  const spot = new Array(24).fill(0.5); spot[17] = spot[18] = spot[19] = 3.0;
+  const { ber } = enDag('2026-01-14', spot);
+  const r = K.planera(ber, Date.parse('2026-01-14T14:00:00+01:00'), K.SYSSLOR.find((s) => s.id === 'bastu'));
+  assert.ok(r.sparar < K.GRANS_KR);         // nu är (nästan) bästa tiden
+  assert.ok(r.undvikFran);                  // men vänta inte för länge
+  assert.ok(r.undvikFran.klocka.timme >= 15 && r.undvikFran.klocka.timme <= 17);
+});
+
+test('planera: dagtidsalternativ bara när det kostar nästan samma som natten', () => {
+  const spot = new Array(24).fill(1.0); spot[2] = spot[3] = 0.30; spot[11] = spot[12] = 0.32;
+  const { ber } = enDag('2026-01-14', spot);
+  const s = K.SYSSLOR.find((x) => x.id === 'tvatt');
+  const r = K.planera(ber, Date.parse('2026-01-14T00:00:00+01:00'), s);
+  assert.equal(r.bast.klocka.txt, '02:00');
+  assert.equal(r.dagAlt?.klocka.txt, '11:00');
+  const spot2 = [...spot]; spot2[11] = spot2[12] = 0.9;
+  const r2 = K.planera(enDag('2026-01-14', spot2).ber, Date.parse('2026-01-14T00:00:00+01:00'), s);
+  assert.equal(r2.dagAlt, null);
 });
 
 test('narOrd: i natt, i kväll, i morgon', () => {
