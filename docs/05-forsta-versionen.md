@@ -67,7 +67,7 @@ Se [`analys/resultat_varningar.md`](../analys/resultat_varningar.md). Varje dygn
 
 **Lärdom 2: att dra ner för hand är värt mindre än man tror.** Jag antog att du under en varning flyttar 30 % av hushållselen till dygnets billigaste timmar och låter värmepumpen gå på halvfart i högst 3 timmar. Det hade sparat **cirka 350 kr på ett år** (uppskattning). Varningarnas värde ligger främst i att du slipper bli överraskad och vet vad det kostar. Ett enskilt beslut kan ändå vara värt en del: en bastu (6–9 kWh) en mycket dyr kväll kan kosta 10–20 kr mer än vid billig tid.
 
-**Lärdom 3: förvarningarna fungerar hyggligt.** 62 förvarningar på ett år, varav 44 stämde (71 %, med uppmätt väder; räkna med cirka 60 % med riktiga prognoser). De fångade 44 av 78 dyra dygn.
+**Lärdom 3: förvarningarna fungerar hyggligt.** 63 förvarningar på ett år, varav 43 stämde (68 %, med uppmätt väder; räkna med cirka 60 % med riktiga prognoser). De fångade 43 av 78 dyra dygn.
 
 **Lärdom 4: kvartspriserna spelar liten roll för överblicken.** Appen räknar kostnader per timme och visar remsor per timme. Varningarna använder ändå kvartarna.
 
@@ -83,3 +83,21 @@ Se [`analys/resultat_varningar.md`](../analys/resultat_varningar.md). Varje dygn
 2. **Notiser.** Installera ntfy-appen, hitta på ett hemligt ämnesnamn, prenumerera på det och lägg in det som hemlighet `NTFY_TOPIC` i GitHub (se README).
 3. **Mätvärden.** Ladda upp en export från Jönköping Energis Mina sidor. Då blir kostnaderna verkliga i stället för beräknade, och jag kan kalibrera värmemodellen och varningsgränsen mot ditt verkliga hus. Känns formatet inte igen, skicka de första raderna.
 4. **Varv 2 av utvärderingen.** Logga riktiga SMHI-prognoser varje dag, så att förvarningarnas träffsäkerhet kan mätas med riktiga prognoser och inte uppmätt väder. Jämför också uppskattad och verklig månadskostnad när mätvärden finns.
+
+## Granskning före sammanslagning (9 oktober 2026)
+
+Före sammanslagningen till `main` granskades koden i fyra delområden: beräkningar och prognos, gränssnitt, datahämtning och publicering, samt notiser och GitHub Actions. Granskningen gav 29 fynd. Alla bedömdes som verkliga och rättades. De viktigaste var:
+
+- **Dagens väder byggde bara på resten av dygnet.** SMHI:s prognos börjar vid nästa hela timme, så förmiddagens prisuppskattningar blev 14–18 % för låga. Nu fylls dygnets passerade timmar med SMHI:s timmätningar, och prognosen interpoleras per timme så att dygnsmedlet blir tidsvägt.
+- **Notisen kunde komma två gånger eller inte alls** när GitHub försenade körningen mer än cirka 35 minuter. Nu avgör cron-uttrycket vilken körning som skickar, och den väntar in sena priser i upp till en timme.
+- **Tidstariff gav fel nivåer.** Normalpriset räknades med säkringstariffens avgift. Nu räknas det timme för timme med den avgift som gällde.
+- **Schemalagda körningar stängs av efter 60 dagar** utan aktivitet i publika repon. Nu återaktiveras de varje natt.
+- **Mindre fel:**
+  - "Just nu" kunde visa en inaktuell kvart.
+  - Inställningsfälten spärrade vissa värden.
+  - Återställ raderade inställningarna direkt.
+  - Sommartidsnätterna hanterades fel.
+  - Elhandelns månadsavgift redovisades som elnät.
+
+Efter rättningarna hittade efterhandstestet samma varningsdagar som tidigare. Förvarningarna blev 63, varav 43 stämde. Alla rättningar har enhetstester.
+

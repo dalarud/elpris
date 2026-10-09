@@ -21,6 +21,9 @@ Här samlas beslut (B), antaganden (A) och öppna frågor (F) i den ordning de u
 | B13 | 2026-10-08 | Varna bara när dyra perioder kostar huset **minst 25 kr extra** per dygn (inställbart). | Utan gräns blev det 179 varningsdagar per år; med 25 kr blir det 64 som ändå fångar cirka 75 % av merkostnaden (resultat_varningar.md). | Procentgräns enbart; varna för varje topp. |
 | B14 | 2026-10-08 | Notis kl 13 för morgondagen (känt pris) och **förvarning exakt 3 dygn före** (uppskattning). | Varje dyrt dygn får högst två notiser utan att tjänsten behöver komma ihåg vad den skickat. | Notis varje gång prognosen ändras. |
 | B15 | 2026-10-08 | Förbrukningen **beräknas** från årsförbrukning och temperatur tills mätvärden laddas upp. Mätvärden läses bara i webbläsaren. | Ger överblick direkt utan integration. Integritet. | Kräva mätvärden innan appen fungerar. |
+| B16 | 2026-10-09 | Granska koden före sammanslagning och rätta alla 29 fynd (se 05-forsta-versionen.md). | Sammanslagningen gör appen publik och startar notiserna. | Slå ihop direkt. |
+| B17 | 2026-10-09 | Dagens väder = SMHI:s timmätningar för passerade timmar + prognos för resten. Dygn som täcks av färre än 20 timmar används inte i prismodellen. | Modellen är tränad på hela dygns medel. Ett halvt dygn gav 14–18 % fel. | Bara prognos; hoppa över prognosen före kl 13. |
+| B18 | 2026-10-09 | Notisens körning väljs utifrån cron-uttrycket, inte klockfönster. Väntar in sena priser i upp till 60 min. | Robust mot GitHubs fördröjningar; exakt en notis per dag. | Klockfönster 13:15–14:35 (gav dubbla eller uteblivna notiser vid fördröjning). |
 
 ## Kända fakta om hushållet (från användaren 2026-10-08)
 
@@ -59,5 +62,5 @@ Här samlas beslut (B), antaganden (A) och öppna frågor (F) i den ordning de u
 | F6 | Finns mätvärden per timme/kvart att exportera från Mina sidor? Gamla fakturor med effekt i kW? | Facit, tariffval (A2) och 16 A-utredning (A4) på riktiga data. |
 | F7 | Notiser via ntfy eller e-post? *(Antaget: ntfy. Bara vid varning, se B13–B14.)* | Notistjänstens utformning. |
 | F8 | Är det okej att repot är publikt? *(Antaget: ja, inga personuppgifter i repot.)* | Hosting (GitHub Pages). |
-| F9 | Får jag slå ihop till `main` och ska Pages slås på? | Krävs för att appen ska bli nåbar och notiserna gå. |
+| ~~F9~~ | ~~Får jag slå ihop till `main`?~~ **Besvarad 2026-10-09:** ja. Pages måste slås på av användaren. | |
 | F5 | Hur kvartspris och månadspris jämförs för en ostyrd profil (hypotes H3). | Avgör om avtalsvalet är rätt för dig. |
