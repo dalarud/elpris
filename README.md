@@ -2,10 +2,11 @@
 
 En svensk webbapp som ger **överblick över elkostnaderna** och **varnar när elen blir dyr**, så att du hinner dra ner användningen. Den är byggd för ett hus i elområde SE3 med kvartsprisavtal, bergvärme och laddhybrid (Jönköping Energi Nät), men allt går att ställa in.
 
-- **Just nu:** vad elen kostar per kWh med allt inräknat, och om det är dyrt.
-- **Varningar:** dyra perioder i dag och i morgon (kända priser), med vad de kostar ditt hus i kronor. Dessutom en förvarning när ett dyrt dygn väntas 2–5 dygn fram. Förvarningen är en uppskattning från SMHI:s väderprognos.
-- **Kommande dagar:** vad huset kostar per dygn, med dyra och billiga timmar som färgade rutor.
-- **Din elkostnad:** månaden hittills, uppskattning för hela månaden, samma månad i fjol och de senaste 12 månaderna.
+- **Månaden:** vad elen kostat hittills, uppskattning för hela månaden och skillnad mot samma månad i fjol.
+- **Läget nu:** på en rad, med när nästa dyra period börjar.
+- **Dra ner-läge:** när en dyr period kommer en checklista med konkreta åtgärder, till exempel vänta med bastun eller skjuta upp torken, och vad var och en sparar i kronor.
+- **När ska jag köra?** Tryck Tvätt, Tork, Disk, Bastu eller Ugn och få bästa tid, vad du sparar och hur många timmar fördröjd start ska ställas på.
+- **Kommande dagar:** kronor per dygn för huset, upp till 5 dygn fram (längre fram är en uppskattning från SMHI:s väderprognos).
 - **Notis i mobilen** strax efter kl 13 när morgondagen blir dyr. Ungefär en gång i veckan, fler på vintern.
 
 Appen: `https://dalarud.github.io/elpris/` *(blir nåbar när GitHub Pages är påslaget, se nedan)*.
@@ -19,7 +20,7 @@ Appen: `https://dalarud.github.io/elpris/` *(blir nåbar när GitHub Pages är p
 | 3. Spåna brett | [docs/03-ideer.md](docs/03-ideer.md) | ✅ |
 | 4. Riktning | [docs/04-riktning.md](docs/04-riktning.md), ändrad efter ditt svar | ✅ |
 | 5. Första versionen | [docs/05-forsta-versionen.md](docs/05-forsta-versionen.md) | ✅ Byggd och testad |
-| 6. Utvärdera | [analys/resultat_varningar.md](analys/resultat_varningar.md), [analys/resultat_prismodell.md](analys/resultat_prismodell.md) | 🔄 Varv 1 klart |
+| 6. Utvärdera och förbättra | [analys/resultat_varningar.md](analys/resultat_varningar.md), [analys/resultat_prismodell.md](analys/resultat_prismodell.md), [docs/06-forenkling.md](docs/06-forenkling.md) | 🔄 Varv 2: förenklad startvy och stödfunktioner |
 
 Beslut, antaganden och öppna frågor: [docs/beslutslogg.md](docs/beslutslogg.md)
 

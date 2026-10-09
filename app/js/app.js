@@ -3,10 +3,15 @@ import { prisprognos, MAX_DYGN_FRAM } from './prognos.js';
 import * as D from './data.js';
 import { tolkaMatvarden } from './import.js';
 
+// Startvyn är medvetet sparsam (användarens önskemål 2026-10-09):
+//   1. Månadens kostnad   2. Läget nu   3. Dra ner-läge (bara när det behövs)
+//   4. När ska jag köra?  5. Kommande dagar på en rad   6. Mer (hopfällt)
+
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const stor = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
+const KORT_DAG = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
 
 // ------------------------------------------------------------ inställningar ----
 
@@ -26,6 +31,8 @@ function laddaInstallningar() {
 
 let inst = laddaInstallningar();
 let matvarden = lasLokalt('matvarden', null);
+let valdSyssla = lasLokalt('syssla', 'tvatt');
+let senast = null;   // data från senaste körningen, för att rita om utan att hämta igen
 
 // ------------------------------------------------------------------ start ----
 
@@ -44,9 +51,8 @@ async function start() {
       D.priserDygn(imorgon, inst.elomrade, idag).catch(() => null),
     ]);
     if (!pIdag) throw new Error('Dagens priser saknas');
-    const fran = K.laggTillDagar(idag, -400);
     const [tim, vader, temp, modell] = await Promise.all([
-      D.timprisHistorik(fran, K.laggTillDagar(idag, -1), inst.elomrade, idag),
+      D.timprisHistorik(K.laggTillDagar(idag, -400), K.laggTillDagar(idag, -1), inst.elomrade, idag),
       D.vaderprognos(inst.plats).catch(() => ({ hem: {}, modell: {} })),
       D.tempHistorik(),
       fetch('modell/prismodell.json').then((r) => r.json()).catch(() => null),
@@ -57,243 +63,257 @@ async function start() {
 
     const poster30 = K.posterFranTimpriser(tim, K.laggTillDagar(idag, -30), K.laggTillDagar(idag, -1));
     const ref = K.referens(poster30.length ? poster30 : pIdag.map((i) => ({ spot: i.spot, datum: i.datum, timme: i.timme })), inst);
-
     const tempFor = (d) => K.valjTemp(d, temp, vader.hem);
     const kostnadDygn = (d) => (tim[d] ? K.dygnskostnad(d, tim[d], tempFor(d), inst, matvarden?.dagar?.[d] ?? null) : null);
 
-    const kanda = [pIdag, pImorgon].filter(Boolean).flat();
-    const berikade = K.berika(kanda, ref, inst);
-    const kwhTim = { [idag]: kostnadDygn(idag).kwhTim };
-    if (pImorgon) kwhTim[imorgon] = kostnadDygn(imorgon).kwhTim;
-
-    // Prognos 2–5 dygn
+    const berikade = K.berika([pIdag, pImorgon].filter(Boolean).flat(), ref, inst);
+    const framat = berikade.filter((i) => i.t0 + i.langd * 60e3 > nu.ms);
+    const kwhTim = {}, delar = {};
+    for (const d of [idag, pImorgon ? imorgon : null].filter(Boolean)) {
+      kwhTim[d] = kostnadDygn(d).kwhTim;
+      delar[d] = K.forbrukningDygn(d, tempFor(d), inst, tim[d]).delar;
+    }
     const dygnspris = {};
     for (const [d, v] of Object.entries(tim)) { const m = K.medel(v); if (Number.isFinite(m)) dygnspris[d] = m; }
-    const senast = pImorgon ? imorgon : idag;
-    const prognos = modell ? prisprognos(modell, dygnspris, vader.modell, senast, idag) : [];
-    // Varför uppskattningen saknas, om den saknas (visas i varningar och kommande dagar).
-    const prognosSaknas = prognos.length ? null
-      : !vader.prognosHamtad || !Object.keys(vader.modell).length ? 'SMHI:s väderprognos kunde inte hämtas'
-        : 'den kunde inte beräknas';
+    const prognos = modell ? prisprognos(modell, dygnspris, vader.modell, pImorgon ? imorgon : idag, idag) : [];
 
-    visaJustNu(berikade, ref, idag, nu);
-    visaVarningar(berikade, ref, kwhTim, prognos, idag, nu, pImorgon, tempFor, prognosSaknas);
-    visaDagar(berikade, ref, idag, nu, pImorgon, prognos, tempFor, kostnadDygn, prognosSaknas);
-    visaKostnad(tim, idag, tempFor, kostnadDygn, prognos);
+    senast = { idag, nu, pImorgon, tim, ref, tempFor, kostnadDygn, berikade, framat, kwhTim, delar, prognos };
+    visaManad(senast);
+    visaLaget(senast);
+    visaDraner(senast);
+    visaSysslor(senast);
+    visaDagar(senast);
+    visaMer(senast);
+    document.body.dataset.klar = '1';
   } catch (e) {
     console.error(e);
-    if (denna === korning) $('#just-nu').innerHTML = `<p class="fel">Kunde inte hämta priserna just nu (${esc(e.message)}). Försök igen om en stund.</p>`;
+    if (denna === korning) $('#manad').innerHTML = `<p class="fel">Kunde inte hämta priserna just nu (${esc(e.message)}). Försök igen om en stund.</p>`;
   }
 }
 
-// Absolut tid (ms) i stället för klockslag: natten då sommartiden slutar finns
-// klockslagen 02:00–02:59 två gånger.
 const slutMs = (i) => i.t0 + i.langd * 60000;
+const tid = (i) => `${String(i.timme).padStart(2, '0')}:${String(i.minut).padStart(2, '0')}`;
+const narDag = (datum, idag) => (K.dagnamn(datum, idag) === 'i dag' ? '' : `${K.dagnamn(datum, idag)} `);
 
-function aterstaende(berikade, idag, nu) {
-  return berikade.filter((i) => slutMs(i) > nu.ms);
-}
+// ---------------------------------------------------------- 1. månaden ----
 
-// ---------------------------------------------------------------- just nu ----
-
-function visaJustNu(berikade, ref, idag, nu) {
-  const aktuellt = berikade.find((i) => i.t0 <= nu.ms && nu.ms < slutMs(i)) ?? berikade[0];
-  const kommande = aterstaende(berikade, idag, nu);
-  const nastaDyr = kommande.find((i) => i !== aktuellt && (i.niva === 'dyrt' || i.niva === 'mycket-dyrt'));
-  const rorligt = aktuellt.total - aktuellt.spot * K.MOMS;
-  let sammanfattning;
-  if (aktuellt.niva === 'mycket-dyrt' || aktuellt.niva === 'dyrt') {
-    const slut = kommande.slice(kommande.indexOf(aktuellt)).find((i) => i.niva !== 'dyrt' && i.niva !== 'mycket-dyrt');
-    sammanfattning = slut ? `Dra ner nu om du kan. Priset sjunker ${K.dagnamn(slut.datum, idag) === 'i dag' ? '' : K.dagnamn(slut.datum, idag) + ' '}kl ${String(slut.timme).padStart(2, '0')}:${String(slut.minut).padStart(2, '0')}.` : 'Dra ner nu om du kan.';
-  } else if (nastaDyr) {
-    sammanfattning = `Nästa dyra period börjar ${K.dagnamn(nastaDyr.datum, idag)} kl ${String(nastaDyr.timme).padStart(2, '0')}:${String(nastaDyr.minut).padStart(2, '0')}.`;
-  } else {
-    sammanfattning = 'Inga dyra perioder resten av dagen' + (berikade.some((i) => i.datum > idag) ? ' eller i morgon.' : '.');
-  }
-  $('#just-nu').classList.remove('laddar');
-  $('#just-nu').innerHTML = `
-    <h2>Just nu</h2>
-    <div class="nu-rad">
-      <span class="nu-pris">${K.tal(aktuellt.total, 2)} <span class="nu-enhet">kr/kWh</span></span>
-      <span class="chip ${aktuellt.niva}">${K.NIVA_TEXT[aktuellt.niva]}</span>
-    </div>
-    <p class="undertext">Normalpris ${K.krKwh(ref.totalMedian)} · nu: spotpris ${K.tal(aktuellt.spot * K.MOMS, 2)} kr, skatt och avgifter ${K.tal(rorligt, 2)} kr</p>
-    <p class="nu-sammanfattning">${esc(sammanfattning)}</p>`;
-}
-
-// -------------------------------------------------------------- varningar ----
-
-function visaVarningar(berikade, ref, kwhTim, prognos, idag, nu, pImorgon, tempFor, prognosSaknas) {
-  const kort = [];
-  const vanliga = [];
-  const dygn = K.dygnsvarningar(K.dyraPerioder(aterstaende(berikade, idag, nu)), kwhTim, ref, inst);
-  for (const d of dygn) {
-    if (!d.varna) { vanliga.push(d); continue; }
-    for (const p of d.perioder) {
-      const v = K.varningstext(p, p.kostnad, ref, idag, K.billigasteFonster(aterstaende(berikade, idag, nu), 3));
-      kort.push(`<article class="varning ${v.niva}"><h3>${esc(v.rubrik)}<span class="chip ${v.niva}">Känt pris</span></h3><p>${esc(v.text)}</p></article>`);
+function manadsSiffror({ idag, tim, tempFor, kostnadDygn, prognos }) {
+  const manad = idag.slice(0, 7);
+  const spotNormal = K.median(Object.entries(tim).filter(([d]) => d < idag && d >= K.laggTillDagar(idag, -30)).flatMap(([, v]) => v).filter(Number.isFinite));
+  let hittills = 0, kwh = 0, dagar = 0, uppmatta = 0, resten = 0;
+  const delar = { elpris: 0, natavgift: 0, energiskatt: 0 };
+  for (let d = `${manad}-01`; d.slice(0, 7) === manad; d = K.laggTillDagar(d, 1)) {
+    const k = d < idag ? kostnadDygn(d) : null;
+    if (k) {
+      hittills += k.kr; kwh += k.kwh; dagar++;
+      if (k.kalla === 'uppmätt') uppmatta++;
+      for (const n of Object.keys(delar)) delar[n] += k.delar[n];
+      continue;
     }
+    // I dag, kommande dygn och dygn vars priser inte gick att hämta: uppskattning.
+    const p = prognos.find((x) => x.datum === d);
+    resten += K.dygnskostnad(d, tim[d] ?? new Array(24).fill(p ? p.spot : spotNormal), tempFor(d), inst).kr;
   }
-  // Uppskattade dyra dagar längre fram (2–5 dygn)
-  const dyra = prognos.filter((p) => p.dyr && K.dagarMellan(idag, p.datum) >= (pImorgon ? 2 : 1));
-  for (const grupp of grupperaDagar(dyra)) {
-    const forsta = grupp[0], sista = grupp.at(-1);
-    const dagar = grupp.length > 1 ? `${K.dagnamn(forsta.datum, idag)}–${K.dagnamn(sista.datum, idag)}` : K.dagnamn(forsta.datum, idag);
-    const tot = (s) => K.dygnsTotal(s, forsta.datum, inst);
-    const orsaker = [...new Set(grupp.flatMap((g) => g.orsak))];
-    const skal = orsaker.length ? `Skäl: ${orsaker.join(', ')}.` : grupp.some((g) => g.hogtLage) ? 'Priset ligger redan högt och väntas ligga kvar.' : '';
-    const extra = grupp.reduce((a, g) => {
-      const k = K.dygnskostnad(g.datum, new Array(24).fill(g.spot), tempFor(g.datum), inst);
-      const n = K.dygnskostnad(g.datum, new Array(24).fill(ref.spotMedian), tempFor(g.datum), inst);
-      return a + k.kr - n.kr;
-    }, 0);
-    kort.push(`<article class="varning dyrt"><h3>Troligen dyrt ${esc(dagar)}<span class="chip uppskattning">Uppskattning</span></h3>
-      <p>Väntat dygnsmedel cirka ${K.krKwh(tot(forsta.spot))} (troligt spann ${K.tal(tot(forsta.spotLag), 2)}–${K.tal(tot(forsta.spotHog), 2)}), normalt ${K.krKwh(ref.totalMedian)}.
-      ${esc(skal)} Det skulle kosta ditt hus ungefär ${K.kr(Math.max(0, extra))} extra. Planera tvätt och annat som kan flyttas till dagarna före.</p></article>`);
-  }
-  if (!kort.length) {
-    const toppar = vanliga.map((d) => `${K.dagnamn(d.datum, idag)} ${d.perioder.map((p) => `${p.franTxt}–${p.tillTxt}`).join(' och ')} (upp till ${K.krKwh(Math.max(...d.perioder.map((p) => p.max)))}, kostar huset ca ${K.kr(d.extra)} extra)`);
-    const framat = prognosSaknas
-      ? ` Uppskattningen för de kommande dagarna saknas just nu (${prognosSaknas}).`
-      : ` Inget tyder heller på dyra dagar de närmaste ${MAX_DYGN_FRAM} dygnen.`;
-    kort.push(`<article class="varning lugnt"><h3>Inga varningar</h3><p>Inget ${pImorgon ? 'i dag eller i morgon' : 'resten av dagen'} kostar huset mer än ${K.kr(inst.varningKr)} extra.${framat}${toppar.length ? ` Vanliga toppar: ${esc(toppar.join('; '))}.` : ''}</p></article>`);
-  }
-  $('#varningar').innerHTML = kort.join('');
-}
-
-function grupperaDagar(lista) {
-  const grupper = [];
-  for (const p of lista) {
-    const g = grupper.at(-1);
-    if (g && K.dagarMellan(g.at(-1).datum, p.datum) === 1) g.push(p); else grupper.push([p]);
-  }
-  return grupper;
-}
-
-// ---------------------------------------------------------- kommande dagar ----
-
-function visaDagar(berikade, ref, idag, nu, pImorgon, prognos, tempFor, kostnadDygn, prognosSaknas) {
-  const rader = [];
-  // Behåll uppfällda dagar när vyn ritas om.
-  const oppna = new Set([...document.querySelectorAll('#dagar details[open]')].map((e) => e.dataset.datum));
-  for (const d of [idag, pImorgon ? K.laggTillDagar(idag, 1) : null].filter(Boolean)) {
-    const dagens = berikade.filter((i) => i.datum === d);
+  const fjol = `${Number(manad.slice(0, 4)) - 1}${manad.slice(4)}`;
+  let fjolHela = 0, fjolDagar = 0;
+  for (let d = `${fjol}-01`; d.slice(0, 7) === fjol; d = K.laggTillDagar(d, 1)) {
     const k = kostnadDygn(d);
-    const timNiva = new Array(24).fill(null).map((_, h) => {
-      const iv = dagens.filter((i) => i.timme === h);
-      if (!iv.length) return 'normalt';
-      return K.niva(K.medel(iv.map((i) => i.total)), ref, inst);
-    });
-    const vagtMedel = K.medel(dagens.map((i) => i.total));
-    const perioder = K.dyraPerioder(dagens);
-    const billigast = K.billigasteFonster(dagens, 3);
-    const t = tempFor(d);
-    rader.push(`<details class="dag" data-datum="${d}"${oppna.has(d) ? ' open' : ''}>
-      <summary>
-        <span class="dag-namn">${esc(stor(K.dagnamn(d, idag)))} <span class="dag-info">${d.slice(8, 10)}/${Number(d.slice(5, 7))}</span></span>
-        <span class="dag-kr">${K.kr(k.kr)}</span>
-        <span class="dag-info">Snitt ${K.krKwh(vagtMedel)} · ${Number.isFinite(t) ? `${K.tal(t)} °C · ` : ''}${k.kalla === 'uppmätt' ? 'uppmätt' : 'beräknad'} förbrukning ${K.tal(k.kwh)} kWh</span>
-        <span class="chip ${dagsniva(timNiva)}">${K.NIVA_TEXT[dagsniva(timNiva)]}</span>
-        <div class="remsa" aria-label="Prisnivå per timme">${timNiva.map((n, h) => `<span class="${n}${d === idag && h < nu.timme ? ' forbi' : ''}" title="${String(h).padStart(2, '0')}:00 ${K.NIVA_TEXT[n]}"></span>`).join('')}</div>
-        <div class="remsa-axel"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
-      </summary>
-      <div class="dag-detalj">
-        ${perioder.length ? perioder.map((p) => `<p><span class="chip ${p.niva}">${K.NIVA_TEXT[p.niva]}</span> ${p.franTxt}–${p.tillTxt}, upp till ${K.krKwh(p.max)}</p>`).join('') : '<p>Inga dyra perioder.</p>'}
-        ${billigast ? `<p><span class="chip billigt">Billigast</span> ${billigast.fran}–${billigast.till}, i snitt ${K.krKwh(billigast.medel)}</p>` : ''}
-        <p class="undertext">Elpris ${K.kr(k.delar.elpris)} · nät ${K.kr(k.delar.natavgift)} · skatt ${K.kr(k.delar.energiskatt)}</p>
-      </div>
+    if (k) { fjolHela += k.kr; fjolDagar++; }
+  }
+  const antalDagar = new Date(Date.UTC(+manad.slice(0, 4), +manad.slice(5, 7), 0)).getUTCDate();
+  return { manad, hittills, kwh, dagar, uppmatta, prognos: hittills + resten, delar, fjolHela, fjolKomplett: fjolDagar === antalDagar };
+}
+
+function visaManad(s) {
+  const m = manadsSiffror(s);
+  const namn = MANADER[+m.manad.slice(5, 7) - 1];
+  const diff = m.fjolKomplett ? m.prognos - m.fjolHela : null;
+  const jamforelse = diff === null || Math.abs(diff) < 50 ? ''
+    : `<p class="manad-jamf ${diff > 0 ? 'upp' : 'ner'}">${diff > 0 ? '▲' : '▼'} ≈ ${K.kr(Math.abs(diff))} ${diff > 0 ? 'mer' : 'mindre'} än ${namn} i fjol (${K.kr(m.fjolHela)})</p>`;
+  $('#manad').classList.remove('laddar');
+  $('#manad').innerHTML = `
+    <p class="etikett">${stor(namn)}</p>
+    <div class="manad-rad">
+      <div><span class="stor-siffra">${K.kr(m.hittills)}</span><span class="dampad"> hittills</span></div>
+      <div class="hoger"><span class="mellan-siffra">≈ ${K.kr(m.prognos)}</span><span class="dampad"> hela månaden</span></div>
+    </div>
+    ${jamforelse}
+    <p class="undertext">${m.dagar} dygn · ${K.tal(m.kwh)} kWh${m.kwh ? ` · ${K.krKwh(m.hittills / m.kwh)}` : ''} · ${m.uppmatta ? 'uppmätt förbrukning' : 'beräknad förbrukning'}</p>`;
+}
+
+// ---------------------------------------------------------- 2. läget nu ----
+
+function visaLaget({ berikade, framat, ref, idag, nu }) {
+  const aktuellt = berikade.find((i) => i.t0 <= nu.ms && nu.ms < slutMs(i)) ?? framat[0] ?? berikade[0];
+  const dyr = (i) => i.niva === 'dyrt' || i.niva === 'mycket-dyrt';
+  let rubrik, rad, klass;
+  if (dyr(aktuellt)) {
+    const slut = framat.slice(Math.max(0, framat.indexOf(aktuellt))).find((i) => !dyr(i));
+    klass = aktuellt.niva;
+    rubrik = aktuellt.niva === 'mycket-dyrt' ? 'Mycket dyrt nu' : 'Dyrt nu';
+    rad = slut ? `Sjunker ${narDag(slut.datum, idag)}kl ${tid(slut)}.` : 'Dra ner där du kan.';
+  } else {
+    const nasta = framat.find((i) => i !== aktuellt && dyr(i));
+    const kvot = aktuellt.total / ref.totalMedian;
+    klass = aktuellt.niva === 'billigt' ? 'billigt' : 'normalt';
+    rubrik = aktuellt.niva === 'billigt' ? 'Billigt nu'
+      : kvot >= 1.15 ? 'Lite dyrt nu' : kvot <= 0.9 ? 'Lite billigt nu' : 'Normalt pris nu';
+    rad = nasta ? `Dyrt från ${narDag(nasta.datum, idag)}kl ${tid(nasta)}.` : 'Inga dyra perioder framför dig.';
+  }
+  $('#laget').hidden = false;
+  $('#laget').className = `kort laget ${klass}`;
+  $('#laget').innerHTML = `
+    <div class="laget-rad"><span class="prick ${klass}"></span><strong>${rubrik}</strong><span class="laget-pris">${K.tal(aktuellt.total, 2)} kr/kWh</span></div>
+    <p class="laget-text">${esc(rad)} <span class="dampad">Normalt ${K.tal(ref.totalMedian, 2)} kr.</span></p>`;
+}
+
+// ------------------------------------------------------- 3. dra ner-läge ----
+
+function bockade(nyckel) { return new Set(lasLokalt(`drana:${nyckel}`, [])); }
+
+// Vilka Dra ner-kort som är utfällda (överlever omritning).
+const oppnaDraner = new Set();
+
+function visaDraner({ framat, kwhTim, delar, ref, idag, prognos, pImorgon }) {
+  const kort = [];
+  // Dygn som är värda en varning (≥ varningKr) visas utfällda. Annars får bara nästa
+  // dyra period en hopfälld rad, så att stödet finns ett tryck bort utan att ta plats.
+  const dygn = K.dygnsvarningar(K.dyraPerioder(framat), kwhTim, ref, inst);
+  const perioder = dygn.flatMap((d) => d.perioder.map((p) => ({ p, varna: d.varna })));
+  const visas = perioder.filter((x, i) => x.varna || i === 0);
+  for (const { p, varna } of visas) {
+    const atgarder = K.dranerAtgarder(p, framat, delar, ref, idag);
+    const summa = atgarder.reduce((a, x) => a + x.sparar, 0);
+    if (!atgarder.length || summa < 2) continue;
+    const nyckel = p.start;
+    const klara = bockade(nyckel);
+    const gjort = atgarder.filter((x) => klara.has(x.id)).reduce((a, x) => a + x.sparar, 0);
+    const oppen = varna || oppnaDraner.has(nyckel);
+    kort.push(`<details class="draner ${p.niva}${varna ? '' : ' liten'}" data-period="${esc(nyckel)}"${oppen ? ' open' : ''}>
+      <summary><span class="rubrik">${varna ? 'Dra ner' : 'Dyrt'} ${esc(K.dagnamn(p.datum, idag))} ${p.franTxt}–${p.tillTxt}</span>
+        <span class="dampad">${varna ? `upp till ${K.krKwh(p.max)}` : `– dra ner och spara ≈ ${K.kr(summa)}`}</span></summary>
+      <p class="dampad">Upp till ${K.krKwh(p.max)}, normalt ${K.tal(ref.totalMedian, 2)} kr. Bocka av det du gör:</p>
+      <ul class="checklista">${atgarder.map((a) => `
+        <li><label><input type="checkbox" data-atgard="${a.id}"${klara.has(a.id) ? ' checked' : ''}>
+          <span class="atgard"><strong>${esc(a.text)}</strong><span class="dampad">${esc(a.detalj)}</span></span>
+          <span class="sparar">≈ ${K.kr(Math.max(1, a.sparar))}</span></label></li>`).join('')}
+      </ul>
+      <p class="summa">${gjort > 0 ? `Du sparar ≈ ${K.kr(gjort)} av möjliga ${K.kr(summa)}.` : `Gör du allt sparar du ≈ ${K.kr(summa)}.`} <span class="dampad">Uppskattning.</span></p>
     </details>`);
   }
+  // Uppskattade dyra dygn längre fram: en kort rad, ingen checklista än.
+  const kommande = prognos.filter((p) => p.dyr && K.dagarMellan(idag, p.datum) >= (pImorgon ? 2 : 1));
+  if (kommande.length) {
+    const dagar = kommande.map((p) => K.dagnamn(p.datum, idag)).join(', ');
+    kort.push(`<p class="forvarning"><strong>Troligen dyrt ${esc(dagar)}</strong> – planera tvätt och bastu till dagen innan. <span class="dampad">Uppskattning; exakta priser kl 13 dagen före.</span></p>`);
+  }
+  $('#draner').innerHTML = kort.join('');
+}
+
+document.addEventListener('toggle', (e) => {
+  const d = e.target.closest?.('details.draner.liten');
+  if (!d) return;
+  if (d.open) oppnaDraner.add(d.dataset.period); else oppnaDraner.delete(d.dataset.period);
+}, true);
+
+// Bocka av (sparas per period i webbläsaren)
+document.addEventListener('change', (e) => {
+  const ruta = e.target.closest('input[data-atgard]');
+  if (!ruta) return;
+  const nyckel = ruta.closest('[data-period]').dataset.period;
+  const klara = bockade(nyckel);
+  if (ruta.checked) klara.add(ruta.dataset.atgard); else klara.delete(ruta.dataset.atgard);
+  sparaLokalt(`drana:${nyckel}`, [...klara]);
+  if (senast) visaDraner(senast);
+});
+
+// ---------------------------------------------------- 4. när ska jag köra? ----
+
+function visaSysslor({ framat, nu, idag }) {
+  const s = K.SYSSLOR.find((x) => x.id === valdSyssla) ?? K.SYSSLOR[0];
+  const r = K.bastaTid(framat, nu.ms, s);
+  const nar = (c) => `${K.narOrd(c.klocka, idag)} kl ${c.klocka.txt}`;
+  let svar;
+  if (!r) svar = '<p>Priserna räcker inte för att räkna ut det just nu.</p>';
+  else if (r.sparar < 1) {
+    svar = `<p class="besked">Kör när det passar dig</p>
+      <p class="dampad">${s.namn} nu kostar ${K.kr2(r.nu.kr)}. Bästa tiden sparar bara ${K.tal(Math.max(0, r.sparar) * 100)} öre.</p>`;
+  } else {
+    const timer = s.timer && r.bast.om > 0 ? `<p class="timer">Ställ fördröjd start på <strong>${r.bast.om} h</strong></p>` : '';
+    const dagAlt = !s.dagtid && r.dagtid && r.dagtid.om !== r.bast.om && r.nu.kr - r.dagtid.kr >= 1
+      ? `<p class="dampad">Hellre dagtid? ${stor(nar(r.dagtid))}: ${K.kr2(r.dagtid.kr)}.</p>` : '';
+    svar = `<p class="besked">${stor(nar(r.bast))}</p>
+      <p>${K.kr2(r.bast.kr)} i stället för ${K.kr2(r.nu.kr)} nu – <strong>du sparar ${K.kr2(r.sparar)}</strong></p>
+      ${timer}${dagAlt}`;
+  }
+  $('#sysslor').hidden = false;
+  $('#sysslor').innerHTML = `
+    <h2>När ska jag köra?</h2>
+    <div class="knapprad">${K.SYSSLOR.map((x) => `<button type="button" class="syssla${x.id === s.id ? ' vald' : ''}" data-syssla="${x.id}" aria-pressed="${x.id === s.id}">${x.namn}</button>`).join('')}</div>
+    <div class="svar">${svar}</div>
+    <p class="undertext">${s.namn}: ca ${K.tal(s.kwh, 1)} kWh på ${s.timmar} h (uppskattning)${s.dagtid ? ', bara dagtid 07–20' : ''}.</p>`;
+}
+
+document.addEventListener('click', (e) => {
+  const knapp = e.target.closest('button[data-syssla]');
+  if (!knapp) return;
+  valdSyssla = knapp.dataset.syssla;
+  sparaLokalt('syssla', valdSyssla);
+  if (senast) visaSysslor(senast);
+});
+
+// ------------------------------------------------------ 5. kommande dagar ----
+
+function visaDagar({ idag, pImorgon, berikade, kostnadDygn, prognos, tempFor }) {
+  const dagar = [];
+  for (const d of [idag, pImorgon ? K.laggTillDagar(idag, 1) : null].filter(Boolean)) {
+    const perioder = K.dyraPerioder(berikade.filter((i) => i.datum === d));
+    const niva = perioder.some((p) => p.niva === 'mycket-dyrt') ? 'mycket-dyrt' : perioder.length ? 'dyrt' : 'normalt';
+    dagar.push({ d, kr: kostnadDygn(d).kr, niva, uppsk: false });
+  }
   for (const p of prognos) {
-    const tot = (s) => K.dygnsTotal(s, p.datum, inst);
-    if (pImorgon && p.datum === K.laggTillDagar(idag, 1)) continue;
-    const k = K.dygnskostnad(p.datum, new Array(24).fill(p.spot), tempFor(p.datum), inst);
-    const nivaP = p.dyr ? 'dyrt' : p.spot <= 0.7 * p.median30 ? 'billigt' : 'normalt';
-    rader.push(`<div class="dag"><div class="dag-rad" style="display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center">
-      <span class="dag-namn">${esc(stor(K.dagnamn(p.datum, idag)))} <span class="dag-info">${p.datum.slice(8, 10)}/${Number(p.datum.slice(5, 7))}</span></span>
-      <span class="dag-kr">≈ ${K.kr(k.kr)}</span>
-      <span class="dag-info">Snitt ≈ ${K.krKwh(tot(p.spot))} (${K.tal(tot(p.spotLag), 2)}–${K.tal(tot(p.spotHog), 2)}) · ${K.tal(p.temp)} °C</span>
-      <span class="chip ${nivaP}">${p.dyr ? 'Troligen dyrt' : nivaP === 'billigt' ? 'Troligen billigt' : 'Troligen normalt'}</span>
-    </div></div>`);
+    if (dagar.some((x) => x.d === p.datum)) continue;
+    const kr = K.dygnskostnad(p.datum, new Array(24).fill(p.spot), tempFor(p.datum), inst).kr;
+    dagar.push({ d: p.datum, kr, niva: p.dyr ? 'dyrt' : p.spot <= 0.7 * p.median30 ? 'billigt' : 'normalt', uppsk: true });
   }
   $('#dagar').hidden = false;
   $('#dagar').innerHTML = `<h2>Kommande dagar</h2>
-    <p class="undertext">Kronor = vad ditt hus beräknas kosta det dygnet, allt inräknat. Tryck på en dag för detaljer. Dagar med ≈ är uppskattningar.</p>
-    ${rader.join('')}
-    ${prognosSaknas ? `<p class="undertext">Uppskattning för dagarna därefter saknas just nu – ${prognosSaknas}.</p>` : ''}`;
-}
-
-function dagsniva(timNiva) {
-  if (timNiva.includes('mycket-dyrt')) return 'mycket-dyrt';
-  if (timNiva.filter((n) => n === 'dyrt').length >= 2) return 'dyrt';
-  if (timNiva.filter((n) => n === 'billigt').length >= 16) return 'billigt';
-  return 'normalt';
-}
-
-// ------------------------------------------------------------ elkostnad ----
-
-function visaKostnad(tim, idag, tempFor, kostnadDygn, prognos) {
-  const manad = idag.slice(0, 7);
-  const forsta = `${manad}-01`;
-  const dagarIManad = new Date(Date.UTC(+manad.slice(0, 4), +manad.slice(5, 7), 0)).getUTCDate();
-  let hittills = 0, hittillsKwh = 0, uppmatta = 0, dagar = 0;
-  const delar = { elpris: 0, natavgift: 0, energiskatt: 0 };
-  const spotNormal = K.median(Object.entries(tim).filter(([d]) => d < idag && d >= K.laggTillDagar(idag, -30)).flatMap(([, v]) => v).filter(Number.isFinite));
-  let resten = 0;
-  for (let d = forsta; d < idag; d = K.laggTillDagar(d, 1)) {
-    const k = kostnadDygn(d);
-    if (!k) {   // priserna för dygnet gick inte att hämta: uppskatta med normalpris
-      resten += K.dygnskostnad(d, new Array(24).fill(spotNormal), tempFor(d), inst).kr;
-      continue;
-    }
-    hittills += k.kr; hittillsKwh += k.kwh; dagar++;
-    if (k.kalla === 'uppmätt') uppmatta++;
-    for (const n of Object.keys(delar)) delar[n] += k.delar[n];
-  }
-  // Uppskattning för resten av månaden: kända priser, prisprognos, annars normalpris
-  for (let d = idag; d.slice(0, 7) === manad; d = K.laggTillDagar(d, 1)) {
-    const p = prognos.find((x) => x.datum === d);
-    const spot = tim[d] ?? new Array(24).fill(p ? p.spot : spotNormal);
-    resten += K.dygnskostnad(d, spot, tempFor(d), inst).kr;
-  }
-  // Samma månad förra året
-  const fjolManad = `${Number(manad.slice(0, 4)) - 1}${manad.slice(4)}`;
-  let fjol = 0, fjolDagar = 0, fjolKwh = 0;
-  for (let d = `${fjolManad}-01`; d.slice(0, 7) === fjolManad; d = K.laggTillDagar(d, 1)) {
-    const k = kostnadDygn(d);
-    if (k) { fjol += k.kr; fjolKwh += k.kwh; fjolDagar++; }
-  }
-  // Senaste 12 månaderna
-  const manader = [];
-  for (let i = 12; i >= 1; i--) {
-    const m = new Date(Date.UTC(+manad.slice(0, 4), +manad.slice(5, 7) - 1 - i, 1)).toISOString().slice(0, 7);
-    let kr = 0, kwh = 0, n = 0, uppm = 0;
-    const antal = new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).getUTCDate();
-    for (let d = `${m}-01`; d.slice(0, 7) === m; d = K.laggTillDagar(d, 1)) {
-      const k = kostnadDygn(d);
-      if (k) { kr += k.kr; kwh += k.kwh; n++; if (k.kalla === 'uppmätt') uppm++; }
-    }
-    if (n) manader.push({ m, kr, kwh, n, antal, uppm });
-  }
-  const summa = delar.elpris + delar.natavgift + delar.energiskatt || 1;
-  const pct = (x) => `${(100 * x / summa).toFixed(1)}%`;
-  const kalla = uppmatta === dagar && dagar ? 'uppmätt förbrukning' : uppmatta ? `uppmätt förbrukning ${uppmatta} av ${dagar} dygn, resten beräknad` : 'beräknad förbrukning';
-  $('#kostnad').hidden = false;
-  $('#kostnad').innerHTML = `
-    <h2>Din elkostnad</h2>
-    <div class="siffror">
-      <div class="siffra"><div class="e">${MANADER[+manad.slice(5, 7) - 1]} hittills (${dagar} dygn)</div><div class="v">${K.kr(hittills)}</div><div class="e">${K.tal(hittillsKwh)} kWh · ${hittillsKwh ? K.krKwh(hittills / hittillsKwh) : ''}</div></div>
-      <div class="siffra"><div class="e">Hela ${MANADER[+manad.slice(5, 7) - 1]}, uppskattning</div><div class="v">≈ ${K.kr(hittills + resten)}</div><div class="e">${dagarIManad - Number(idag.slice(8, 10)) + 1} dygn kvar inkl. i dag</div></div>
-      ${fjolDagar ? `<div class="siffra"><div class="e">${MANADER[+manad.slice(5, 7) - 1]} i fjol</div><div class="v">${K.kr(fjol)}</div><div class="e">${K.tal(fjolKwh)} kWh · ${K.krKwh(fjol / fjolKwh)}</div></div>` : ''}
+    <div class="dagrad">${dagar.map((x) => `<div class="dagruta" title="${K.NIVA_TEXT[x.niva]}${x.uppsk ? ' (uppskattning)' : ''}">
+      <span class="dagnamn">${x.d === idag ? 'I dag' : KORT_DAG[K.veckodag(x.d)]}</span>
+      <span class="prick ${x.niva}"></span>
+      <span class="dagkr">${x.uppsk ? '≈' : ''}${K.tal(x.kr)}</span></div>`).join('')}
     </div>
-    <div class="fordelning" role="img" aria-label="Fördelning av kostnaden"><span style="width:${pct(delar.elpris)}"></span><span style="width:${pct(delar.natavgift)}"></span><span style="width:${pct(delar.energiskatt)}"></span></div>
-    <div class="legend"><span><i style="background:var(--accent)"></i>Elpris ${K.kr(delar.elpris)}</span><span><i style="background:var(--dyrt);opacity:.75"></i>Elnät ${K.kr(delar.natavgift)}</span><span><i style="background:var(--normalt);opacity:.5"></i>Energiskatt ${K.kr(delar.energiskatt)}</span></div>
-    <p class="undertext">Baserat på ${kalla} och verkliga priser. Bara elpriset påverkas av när du använder el.</p>
+    <p class="undertext">Kronor per dygn för huset. Gul eller röd prick = dyra timmar. ≈ = uppskattning.</p>`;
+}
+
+// ------------------------------------------------------------------ 6. mer ----
+
+function visaMer(s) {
+  const { idag, kostnadDygn } = s;
+  const m = manadsSiffror(s);
+  const summa = m.delar.elpris + m.delar.natavgift + m.delar.energiskatt || 1;
+  const pct = (x) => Math.round(100 * x / summa);
+  const manader = [];
+  const manad = idag.slice(0, 7);
+  for (let i = 12; i >= 1; i--) {
+    const mm = new Date(Date.UTC(+manad.slice(0, 4), +manad.slice(5, 7) - 1 - i, 1)).toISOString().slice(0, 7);
+    let kr = 0, kwh = 0, n = 0;
+    const antal = new Date(Date.UTC(+mm.slice(0, 4), +mm.slice(5, 7), 0)).getUTCDate();
+    for (let d = `${mm}-01`; d.slice(0, 7) === mm; d = K.laggTillDagar(d, 1)) {
+      const k = kostnadDygn(d);
+      if (k) { kr += k.kr; kwh += k.kwh; n++; }
+    }
+    if (n) manader.push({ m: mm, kr, kwh, n, antal });
+  }
+  const sum = (f) => manader.reduce((a, x) => a + f(x), 0);
+  $('#mer-innehall').innerHTML = `
+    <h3>${stor(MANADER[+manad.slice(5, 7) - 1])} hittills</h3>
+    <p>Elpris ${K.kr(m.delar.elpris)} (${pct(m.delar.elpris)} %) · Elnät ${K.kr(m.delar.natavgift)} (${pct(m.delar.natavgift)} %) · Energiskatt ${K.kr(m.delar.energiskatt)} (${pct(m.delar.energiskatt)} %). Bara elpriset påverkas av när du använder el.</p>
     <h3>Senaste 12 månaderna</h3>
     <div class="tabellrulle"><table>
       <thead><tr><th>Månad</th><th>kWh</th><th>Kostnad</th><th>kr/kWh</th></tr></thead>
       <tbody>${manader.map((x) => `<tr><td>${MANADER[+x.m.slice(5, 7) - 1].slice(0, 3)} ${x.m.slice(0, 4)}${x.n < x.antal ? ` <span class="undertext">(${x.n} dygn)</span>` : ''}</td><td>${K.tal(x.kwh)}</td><td>${K.kr(x.kr)}</td><td>${K.tal(x.kr / x.kwh, 2)}</td></tr>`).join('')}</tbody>
-      <tfoot><tr><th>Summa</th><th>${K.tal(manader.reduce((a, x) => a + x.kwh, 0))}</th><th>${K.kr(manader.reduce((a, x) => a + x.kr, 0))}</th><th>${K.tal(manader.reduce((a, x) => a + x.kr, 0) / manader.reduce((a, x) => a + x.kwh, 0), 2)}</th></tr></tfoot>
+      <tfoot><tr><th>Summa</th><th>${K.tal(sum((x) => x.kwh))}</th><th>${K.kr(sum((x) => x.kr))}</th><th>${K.tal(sum((x) => x.kr) / sum((x) => x.kwh), 2)}</th></tr></tfoot>
     </table></div>`;
 }
 

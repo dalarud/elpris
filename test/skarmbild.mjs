@@ -33,17 +33,19 @@ for (const tema of ['light', 'dark']) {
     const r = await fetch(route.request().url());
     route.fulfill({ status: r.status, body: Buffer.from(await r.arrayBuffer()), headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' } });
   });
+  // TID=2026-10-08T15:00:00+02:00 låtsas att klockan är något annat (t.ex. en dyr dag).
+  if (process.env.TID) await ctx.clock.install({ time: new Date(process.env.TID) });
   const sida = await ctx.newPage();
   sida.on('console', (m) => { if (m.type() === 'error' && !/status of 404/.test(m.text())) fel.push(`${tema}: ${m.text()}`); });
   sida.on('pageerror', (e) => fel.push(`${tema}: ${e.message}`));
   // 404 för morgondagens priser före kl 13 är väntat och hanteras av appen.
   sida.on('response', (r) => { if (r.status() >= 400) info.push(`${tema}: ${r.status()} ${r.url()}`); });
   await sida.goto(`http://127.0.0.1:${port}/`);
-  await sida.waitForSelector('#kostnad:not([hidden])', { timeout: 90000 }).catch(() => fel.push(`${tema}: kostnadsdelen visades aldrig`));
+  await sida.waitForSelector('body[data-klar="1"]', { timeout: 90000 }).catch(() => fel.push(`${tema}: sidan blev aldrig klar`));
   await sida.screenshot({ path: join(UT, `elkollen-${tema}.png`), fullPage: true });
   if (tema === 'light') {
-    await sida.click('#dagar details.dag summary');
-    await sida.screenshot({ path: join(UT, 'elkollen-dag-oppen.png'), fullPage: false, clip: await sida.locator('#dagar').boundingBox() });
+    await sida.click('button[data-syssla="tork"]');
+    await sida.screenshot({ path: join(UT, 'elkollen-tork.png'), fullPage: false, clip: await sida.locator('#sysslor').boundingBox() });
     await sida.click('#oppna-installningar');
     await sida.screenshot({ path: join(UT, 'elkollen-installningar.png') });
   }

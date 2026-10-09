@@ -65,75 +65,82 @@ h3 { font-size: 0.95rem; margin: 0.9rem 0 0.4rem; }
   max-width: 640px; margin: 0 auto; padding: 16px 16px 8px;
 }
 main { max-width: 640px; margin: 0 auto; padding: 0 16px 32px; display: grid; gap: 12px; }
+main > * { min-width: 0; }   /* låt rader med många rutor rulla i stället för att bredda sidan */
 
 .kort {
   background: var(--yta); border: 1px solid var(--linje); border-radius: 14px;
   padding: 16px; box-shadow: var(--skugga);
 }
-.kort.liten { font-size: 0.9rem; }
-.kort.liten ul { padding-left: 1.1rem; margin: 0.3rem 0 0.6rem; }
-.kort.liten li { margin-bottom: 0.35rem; }
 .laddar { color: var(--dampad); }
 
-/* Just nu */
-.nu-rad { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.nu-pris { font-size: 2.3rem; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; }
-.nu-enhet { font-size: 1rem; color: var(--dampad); font-weight: 400; }
-.nu-sammanfattning { margin: 0.6rem 0 0; font-size: 1rem; }
+/* Månaden */
+.etikett { margin: 0 0 2px; color: var(--dampad); font-size: 0.85rem; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
+.manad-rad { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.stor-siffra { font-size: 2.1rem; font-weight: 700; letter-spacing: -0.02em; }
+.mellan-siffra { font-size: 1.25rem; font-weight: 650; }
+.hoger { text-align: right; }
+.dampad { color: var(--dampad); font-weight: 400; }
+.manad-jamf { margin: 6px 0 0; font-weight: 600; font-size: 0.95rem; }
+.manad-jamf.upp { color: var(--mycket); }
+.manad-jamf.ner { color: var(--billigt); }
 
-.chip {
-  display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
-  white-space: nowrap;
-}
-.chip.billigt { color: var(--billigt); background: var(--billigt-bg); }
-.chip.normalt { color: var(--normalt); background: var(--normalt-bg); }
-.chip.dyrt { color: var(--dyrt); background: var(--dyrt-bg); }
-.chip.mycket-dyrt { color: var(--mycket); background: var(--mycket-bg); }
-.chip.uppskattning { color: var(--dampad); background: transparent; border: 1px dashed var(--linje); font-weight: 500; }
+/* Läget nu */
+.laget { padding: 12px 16px; }
+.laget-rad { display: flex; align-items: center; gap: 10px; font-size: 1.1rem; }
+.laget-pris { margin-left: auto; font-weight: 650; white-space: nowrap; }
+.laget-text { margin: 4px 0 0 22px; }
+.prick { width: 12px; height: 12px; border-radius: 50%; flex: none; display: inline-block; }
+.prick.billigt { background: var(--billigt); }
+.prick.normalt { background: var(--normalt); opacity: 0.45; }
+.prick.dyrt { background: var(--dyrt); }
+.prick.mycket-dyrt { background: var(--mycket); }
 
-/* Varningar */
-#varningar { display: grid; gap: 10px; }
-#varningar:empty { display: none; }
-.varning {
-  background: var(--yta); border: 1px solid var(--linje); border-left: 5px solid var(--dyrt);
-  border-radius: 12px; padding: 12px 14px; box-shadow: var(--skugga);
-}
-.varning.mycket-dyrt { border-left-color: var(--mycket); }
-.varning.lugnt { border-left-color: var(--billigt); }
-.varning h3 { margin: 0 0 0.25rem; font-size: 1rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.varning p { margin: 0; }
+/* Dra ner-läge */
+#draner { display: grid; gap: 10px; }
+#draner:empty { display: none; }
+.draner { background: var(--yta); border: 1px solid var(--linje); border-left: 5px solid var(--dyrt); border-radius: 14px; padding: 14px 16px; box-shadow: var(--skugga); }
+.draner.mycket-dyrt { border-left-color: var(--mycket); }
+.draner summary { cursor: pointer; list-style: none; display: grid; gap: 2px; }
+.draner summary::-webkit-details-marker { display: none; }
+.draner .rubrik { font-weight: 650; font-size: 1.05rem; }
+.draner.liten { padding: 10px 14px; }
+.draner.liten .rubrik { font-size: 0.98rem; }
+.draner.liten summary { grid-template-columns: auto 1fr; align-items: baseline; column-gap: 6px; }
+.draner.liten summary::after { content: '›'; grid-column: 3; color: var(--dampad); font-size: 1.2rem; transition: transform 0.15s; }
+.draner.liten[open] summary::after { transform: rotate(90deg); }
+.draner[open] > p:first-of-type { margin-top: 8px; }
+.draner > p { margin: 0 0 6px; font-size: 0.9rem; }
+.checklista { list-style: none; margin: 4px 0 0; padding: 0; }
+.checklista li { border-top: 1px solid var(--linje); }
+.checklista label { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 9px 0; cursor: pointer; }
+.checklista input { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; }
+.atgard { display: grid; }
+.atgard .dampad { font-size: 0.82rem; }
+.sparar { font-weight: 650; white-space: nowrap; }
+.checklista input:checked ~ .atgard strong { text-decoration: line-through; color: var(--dampad); }
+.summa { margin: 8px 0 0; font-weight: 600; }
+.forvarning { margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--dyrt-bg); color: var(--text); font-size: 0.92rem; }
+
+/* När ska jag köra? */
+.knapprad { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; }
+.syssla { font: inherit; font-size: 0.92rem; font-weight: 600; padding: 8px 2px; border-radius: 999px; border: 1px solid var(--linje); background: var(--bg); color: var(--text); cursor: pointer; }
+.syssla.vald { background: var(--accent); border-color: var(--accent); color: var(--knapp-text); }
+.svar p { margin: 0 0 4px; }
+.besked { font-size: 1.15rem; font-weight: 650; }
+.timer { display: inline-block; margin-top: 4px !important; padding: 4px 10px; border-radius: 8px; background: var(--billigt-bg); }
 
 /* Kommande dagar */
-.dag { border-top: 1px solid var(--linje); padding: 10px 0; }
-.dag:first-of-type { border-top: 0; }
-.dag summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; }
-.dag summary::-webkit-details-marker { display: none; }
-.dag-namn { font-weight: 600; }
-.dag-kr { font-weight: 650; text-align: right; }
-.dag-info { color: var(--dampad); font-size: 0.85rem; }
-.dag-detalj { padding: 8px 0 2px; font-size: 0.92rem; }
-.dag-detalj p { margin: 0.25rem 0; }
+.dagrad { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(44px, 1fr); gap: 4px; overflow-x: auto; }
+.dagruta { display: grid; justify-items: center; gap: 4px; padding: 8px 2px; border-radius: 10px; background: var(--bg); font-size: 0.85rem; }
+.dagnamn { font-weight: 600; }
+.dagkr { color: var(--dampad); white-space: nowrap; font-size: 0.8rem; }
 
-.remsa { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; margin-top: 6px; grid-column: 1 / -1; }
-.remsa span { height: 14px; border-radius: 3px; }
-.remsa .billigt { background: var(--billigt); opacity: 0.55; }
-.remsa .normalt { background: var(--normalt); opacity: 0.25; }
-.remsa .dyrt { background: var(--dyrt); }
-.remsa .mycket-dyrt { background: var(--mycket); }
-.remsa .forbi { opacity: 0.12; }
-.remsa-axel { grid-column: 1 / -1; display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--dampad); }
+/* Mer */
+.mer summary { cursor: pointer; font-weight: 600; color: var(--dampad); }
+.mer[open] summary { margin-bottom: 8px; }
+.mer ul { padding-left: 1.1rem; font-size: 0.9rem; }
+.mer li { margin-bottom: 0.35rem; }
 
-/* Kostnad */
-.siffror { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px; }
-.siffra { background: var(--bg); border-radius: 10px; padding: 10px 12px; }
-.siffra .v { font-size: 1.35rem; font-weight: 650; }
-.siffra .e { color: var(--dampad); font-size: 0.8rem; }
-.fordelning { display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin: 6px 0; }
-.fordelning span:nth-child(1) { background: var(--accent); }
-.fordelning span:nth-child(2) { background: var(--dyrt); opacity: 0.75; }
-.fordelning span:nth-child(3) { background: var(--normalt); opacity: 0.5; }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.85rem; color: var(--dampad); }
-.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 th, td { text-align: right; padding: 6px 4px; border-bottom: 1px solid var(--linje); }
 th:first-child, td:first-child { text-align: left; }

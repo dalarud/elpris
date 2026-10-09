@@ -23,21 +23,25 @@
   </header>
 
   <main id="innehall">
-    <section class="kort laddar" id="just-nu"><p>Hämtar dagens priser …</p></section>
-    <section id="varningar" aria-live="polite"></section>
+    <section class="kort laddar" id="manad"><p>Hämtar priser …</p></section>
+    <section class="kort laget" id="laget" hidden></section>
+    <section id="draner" aria-live="polite"></section>
+    <section class="kort" id="sysslor" hidden></section>
     <section class="kort" id="dagar" hidden></section>
-    <section class="kort" id="kostnad" hidden></section>
-    <section class="kort liten" id="om">
-      <h2>Så räknar Elkollen</h2>
+    <details class="kort mer" id="mer">
+      <summary>Mer: fördelning, 12 månader och hur det räknas</summary>
+      <div id="mer-innehall"></div>
+      <h3>Så räknar Elkollen</h3>
       <ul>
-        <li><strong>Totalpris</strong> är allt du betalar per kWh: spotpris och påslag (med moms), energiskatt och elnätets överföringsavgift. Fasta avgifter ingår i dygns- och månadskostnaderna.</li>
+        <li><strong>Priset</strong> per kWh är allt du betalar: spotpris och påslag (med moms), energiskatt och elnätets överföringsavgift. Månadens kostnad räknar också med de fasta avgifterna.</li>
         <li><strong>Normalt</strong> är medianpriset de senaste 30 dygnen. <em>Dyrt</em> är minst 40 % över normalt och <em>mycket dyrt</em> minst dubbelt så mycket.</li>
-        <li><strong>Varning</strong> ges bara när de dyra perioderna ett dygn kostar ditt hus minst 25 kr extra (går att ändra). Vanliga kvällstoppar ger ingen varning. Med den gränsen hade du fått ungefär en varning i veckan senaste året, fler på vintern.</li>
-        <li>Dagens och morgondagens priser är <strong>kända</strong> (publiceras kl 13 dagen före). Dagarna därefter är en <strong>uppskattning</strong> utifrån senaste priser och SMHI:s väderprognos. I test hittade den drygt hälften av de dyra dagarna 3–5 dygn i förväg, och ungefär 6 av 10 varningar stämde.</li>
+        <li><strong>Dra ner-läge</strong> visas bara när de dyra timmarna kostar huset minst 25 kr extra det dygnet. Det går att ändra under Inställningar. Beloppen för varje åtgärd är uppskattningar.</li>
+        <li><strong>När ska jag köra?</strong> prövar att starta nu eller om 1, 2, 3 … timmar, så långt priserna är kända. Morgondagens priser kommer kl 13.</li>
+        <li>Dagar längre fram (≈) är en <strong>uppskattning</strong> från senaste priserna och SMHI:s väderprognos. I test stämde ungefär 6 av 10 varningar.</li>
         <li>Husets förbrukning är <strong>beräknad</strong> från årsförbrukningen och utetemperaturen tills du laddar upp egna mätvärden.</li>
       </ul>
       <p class="undertext">Data: <a href="https://www.elprisetjustnu.se">Elpriset just nu.se</a> (ENTSO-E) och <a href="https://www.smhi.se/data">SMHI</a>. <a href="https://github.com/dalarud/elpris">Källkod och dokumentation</a>.</p>
-    </section>
+    </details>
   </main>
 
   <dialog id="installningar">

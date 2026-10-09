@@ -42,7 +42,7 @@ function kvartar(datum, spotPerTimme) {
   for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m += 15) {
     const s = `${datum}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+01:00`;
     const e = m === 45 ? `${h === 23 ? K.laggTillDagar(datum, 1) : datum}T${String((h + 1) % 24).padStart(2, '0')}:00:00+01:00` : `${datum}T${String(h).padStart(2, '0')}:${String(m + 15).padStart(2, '0')}:00+01:00`;
-    ut.push({ start: s, slut: e, datum, timme: h, minut: m, langd: 15, spot: spotPerTimme[h] });
+    ut.push({ start: s, slut: e, t0: Date.parse(s), datum, timme: h, minut: m, langd: 15, spot: spotPerTimme[h] });
   }
   return ut;
 }
@@ -198,4 +198,56 @@ test('fyllLuckor: saknade mätningar för dagens tidiga timmar fylls så att dyg
   const d = dygnFranTimmar(fyllLuckor(prognos, '2026-01-11'));
   assert.equal(d['2026-01-11'].timmarTemp, 24);
   assert.equal(d['2026-01-11'].timmarVind, 24);
+});
+
+// ---------------------------------------------------------------------------
+// Stödfunktioner (varv 2): När ska jag köra? och Dra ner-läge.
+
+function enDag(datum, spot) {
+  const ref = K.referens(new Array(720).fill(0.5), inst);
+  return { ref, ber: K.berika(kvartar(datum, spot), ref, inst) };
+}
+
+test('fonsterKostnad: kostnad för en syssla över delar av kvartar, null utanför kända priser', () => {
+  const { ber } = enDag('2026-01-14', new Array(24).fill(0.5));
+  const t0 = Date.parse('2026-01-14T10:07:00+01:00');
+  const p = K.totalpris(0.5, '2026-01-14', 10, inst);
+  assert.ok(Math.abs(K.fonsterKostnad(ber, t0, 2, 1) - p) < 1e-9);
+  assert.equal(K.fonsterKostnad(ber, Date.parse('2026-01-14T23:30:00+01:00'), 2, 1), null);
+});
+
+test('bastaTid: hittar billigaste start i hela timmar och föreslår fördröjd start', () => {
+  const spot = new Array(24).fill(1.0); spot[13] = spot[14] = 0.1;     // billigt 13–15
+  const { ber } = enDag('2026-01-14', spot);
+  const nu = Date.parse('2026-01-14T08:00:00+01:00');
+  const r = K.bastaTid(ber, nu, K.SYSSLOR.find((s) => s.id === 'tvatt'));
+  assert.equal(r.bast.om, 5);
+  assert.equal(r.bast.klocka.txt, '13:00');
+  assert.ok(r.sparar > 1);
+});
+
+test('bastaTid: bastu föreslås aldrig mitt i natten', () => {
+  // Billigast kl 02–04, näst billigast kl 12–14: bastun ska föreslås kl 12, inte mitt i natten.
+  const spot = new Array(24).fill(1.0); spot[2] = spot[3] = 0.1; spot[12] = spot[13] = 0.4;
+  const { ber } = enDag('2026-01-14', spot);
+  const r = K.bastaTid(ber, Date.parse('2026-01-14T00:00:00+01:00'), K.SYSSLOR.find((s) => s.id === 'bastu'));
+  assert.equal(r.bast.klocka.txt, '12:00');
+});
+
+test('dranerAtgarder: konkreta åtgärder sorterade efter besparing, bara de som är värda något', () => {
+  const spot = new Array(24).fill(0.4); spot[17] = spot[18] = spot[19] = 3.0;
+  const { ber, ref } = enDag('2026-01-14', spot);
+  const p = K.dyraPerioder(ber)[0];
+  const delar = { '2026-01-14': K.forbrukningDygn('2026-01-14', -5, inst, spot).delar };
+  const a = K.dranerAtgarder(p, ber, delar, ref, '2026-01-14');
+  assert.equal(a[0].id, 'bastu');
+  assert.ok(a.some((x) => x.id === 'varme'));
+  assert.ok(a.every((x, i) => i === 0 || a[i - 1].sparar >= x.sparar));
+  assert.ok(a.every((x) => x.sparar >= 0.5));
+});
+
+test('narOrd: i natt, i kväll, i morgon', () => {
+  assert.equal(K.narOrd({ datum: '2026-10-10', timme: 2 }, '2026-10-09'), 'i natt');
+  assert.equal(K.narOrd({ datum: '2026-10-09', timme: 20 }, '2026-10-09'), 'i kväll');
+  assert.equal(K.narOrd({ datum: '2026-10-10', timme: 11 }, '2026-10-09'), 'i morgon');
 });

@@ -25,13 +25,6 @@ const ROT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const inst = { ...K.STANDARD };
 const FORVARNING_DYGN = 3;
 
-/** Kronexempel för den dyraste perioden jämfört med dygnets billigaste 3 timmar. */
-function exempel(dygn, berikade, idag) {
-  const p = [...dygn.perioder].sort((a, b) => b.medelTotal - a.medelTotal)[0];
-  const txt = K.exempeltext(p, K.billigasteFonster(berikade, 3), idag);
-  return txt ? ` ${txt.replace('under perioden', `kl ${p.franTxt}–${p.tillTxt}`)}` : '';
-}
-
 function lasJson(fil) {
   try { return JSON.parse(readFileSync(join(ROT, 'app', 'data', fil), 'utf8')).dagar; } catch { return {}; }
 }
@@ -66,9 +59,16 @@ export async function byggNotiser(idag, { kallor = {} } = {}) {
     const tider = dygn.perioder.map((p) => `${p.franTxt}–${p.tillTxt}`).join(' och ');
     const max = Math.max(...dygn.perioder.map((p) => p.max));
     const extra = dygn.extra;
+    // Samma konkreta åtgärder som Dra ner-läget i appen, för den dyraste perioden.
+    const dyrast = [...dygn.perioder].sort((a, b) => b.medelTotal - a.medelTotal)[0];
+    const delar = { [imorgon]: K.forbrukningDygn(imorgon, tempFor(imorgon), inst, tim[imorgon]).delar };
+    const atgarder = K.dranerAtgarder(dyrast, berikade, delar, ref, idag).slice(0, 3);
+    const gor = atgarder.length
+      ? ` Gör så här: ${atgarder.map((x) => `${x.text.toLowerCase()} (≈ ${K.kr(Math.max(1, x.sparar))})`).join(', ')}.`
+      : ` ${K.RAD[varst]}`;
     notiser.push({
       titel: `${K.NIVA_EL[varst]} i morgon ${tider}`,
-      text: `Upp till ${K.krKwh(max)} (normalt ${K.krKwh(ref.totalMedian)}). Ditt hus kostar då ungefär ${K.kr(extra)} mer än vid normalpris.${exempel(dygn, berikade, idag)} ${K.RAD[varst]}`,
+      text: `Upp till ${K.krKwh(max)} (normalt ${K.krKwh(ref.totalMedian)}). Huset kostar då ≈ ${K.kr(extra)} mer än vid normalpris.${gor}`,
       prioritet: varst === 'mycket-dyrt' ? 4 : 3,
       taggar: varst === 'mycket-dyrt' ? 'rotating_light' : 'warning',
     });

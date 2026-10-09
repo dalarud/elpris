@@ -24,6 +24,9 @@ Här samlas beslut (B), antaganden (A) och öppna frågor (F) i den ordning de u
 | B16 | 2026-10-09 | Granska koden före sammanslagning och rätta alla 29 fynd (se 05-forsta-versionen.md). | Sammanslagningen gör appen publik och startar notiserna. | Slå ihop direkt. |
 | B17 | 2026-10-09 | Dagens väder = SMHI:s timmätningar för passerade timmar + prognos för resten. Dygn som täcks av färre än 20 timmar används inte i prismodellen. | Modellen är tränad på hela dygns medel. Ett halvt dygn gav 14–18 % fel. | Bara prognos; hoppa över prognosen före kl 13. |
 | B18 | 2026-10-09 | Notisens körning väljs utifrån cron-uttrycket, inte klockfönster. Väntar in sena priser i upp till 60 min. | Robust mot GitHubs fördröjningar; exakt en notis per dag. | Klockfönster 13:15–14:35 (gav dubbla eller uteblivna notiser vid fördröjning). |
+| B19 | 2026-10-09 | **Förenklad startvy** i ordningen månadens kostnad, läget nu, Dra ner-läge, När ska jag köra?, dagrad och Mer (hopfällt). | Användaren: "plottrigt … för lite stödjande". Valde själv funktioner och startvy. | Behålla detaljvyerna (prisremsor, långa varningar). |
+| B20 | 2026-10-09 | **När ska jag köra?** prövar start nu och om hela timmar (fördröjd start), bara inom kända priser. Under 1 kr skillnad står det "Kör när det passar dig". Bastu och ugn bara dagtid. | Matchar maskinernas timer, är ärligt när det inte spelar roll och undviker orimliga förslag. | Exakt billigaste kvart; prognospriser. |
+| B21 | 2026-10-09 | **Dra ner-läge** som checklista med kronor per åtgärd. Utfälld vid varningsdygn, annars en hopfälld rad för nästa dyra period. | Ger stöd utan att ta plats de flesta dagar. | Visa alltid; visa bara vid varning (då syns det sällan). |
 
 ## Kända fakta om hushållet (från användaren 2026-10-08)
 
