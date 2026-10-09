@@ -1,13 +1,15 @@
 # Elkollen
 
-En svensk webbapp som ger **överblick över elkostnaderna** och **varnar när elen blir dyr**, så att du hinner dra ner användningen. Den är byggd för ett hus i elområde SE3 med kvartsprisavtal, bergvärme och laddhybrid (Jönköping Energi Nät), men allt går att ställa in.
+En svensk webbapp som hjälper ett hushåll att **använda el när den är billig och dra ner när den är dyr**, i kronor och klockslag. Den är byggd som en daytraders plattform (se [docs/07-daytrader.md](docs/07-daytrader.md)), men utan jargong. Målgruppen är ett hus i elområde SE3 med kvartsprisavtal, bergvärme och laddhybrid (Jönköping Energi Nät), men allt går att ställa in.
 
-- **Månaden:** vad elen kostat hittills, uppskattning för hela månaden och skillnad mot samma månad i fjol.
-- **Läget nu:** på en rad, med när nästa dyra period börjar.
-- **Dra ner-läge:** när en dyr period kommer en checklista med konkreta åtgärder, till exempel vänta med bastun eller skjuta upp torken, och vad var och en sparar i kronor.
-- **När ska jag köra?** Tryck Tvätt, Tork, Disk, Bastu eller Ugn och få bästa tid, vad du sparar och hur många timmar fördröjd start ska ställas på.
-- **Kommande dagar:** kronor per dygn för huset, upp till 5 dygn fram (längre fram är en uppskattning från SMHI:s väderprognos).
-- **Notis i mobilen** strax efter kl 13 när morgondagen blir dyr. Ungefär en gång i veckan, fler på vintern.
+- **Månaden:** vad elen kostat hittills, ≈ hela månaden och vad du flyttat genom att bocka av.
+- **Signalen:** ett ord nu (*Kör nu*, *Vänta*, *Dra ner* eller *Spelar ingen roll*) och en zonremsa från nu till slutet av de kända priserna. Tryck på en tid för att se vad sysslorna kostar då. Kursen per timme visas bakom ett tryck.
+- **Orderboken:** en rad per syssla (tvätt, tork, disk, bastu, ugn, värme) sorterad efter kronor, till exempel "Tork: ställ 13 h → start i natt 03:30 · ≈ 3,70 kr". På dra ner-dygn visar den husets exponering och blir en checklista.
+- **Bil och värmepump** som kontrollrader: när laddboxen bör ladda, och vad den ostyrda värmepumpen drar under de dyra timmarna.
+- **Egna ordrar:** "torken klar före lördag 07, högst 1,20 kr/kWh". Appen räknar ut när den ska köras.
+- **Påminnelser:** klockknapp per rad. Du får en ntfy-notis vid rätt tid, eller kvällen före om timern ska ställas.
+- **Kommande dagar:** kronor per dygn upp till 5 dygn fram. Tryck på ett dygn för detaljer.
+- **Notis i mobilen** kl 13:40 dagen före ett dra ner-dygn, ungefär 1,3 gånger i veckan i snitt (fler på vintern).
 
 Appen: `https://dalarud.github.io/elpris/` *(blir nåbar när GitHub Pages är påslaget, se nedan)*.
 
@@ -20,7 +22,7 @@ Appen: `https://dalarud.github.io/elpris/` *(blir nåbar när GitHub Pages är p
 | 3. Spåna brett | [docs/03-ideer.md](docs/03-ideer.md) | ✅ |
 | 4. Riktning | [docs/04-riktning.md](docs/04-riktning.md), ändrad efter ditt svar | ✅ |
 | 5. Första versionen | [docs/05-forsta-versionen.md](docs/05-forsta-versionen.md) | ✅ Byggd och testad |
-| 6. Utvärdera och förbättra | [analys/resultat_varningar.md](analys/resultat_varningar.md), [analys/resultat_prismodell.md](analys/resultat_prismodell.md), [docs/06-forenkling.md](docs/06-forenkling.md) | 🔄 Varv 2: förenklad startvy och stödfunktioner |
+| 6. Utvärdera och förbättra | [analys/resultat_varningar.md](analys/resultat_varningar.md), [analys/resultat_prismodell.md](analys/resultat_prismodell.md), [docs/06-forenkling.md](docs/06-forenkling.md), [docs/07-daytrader.md](docs/07-daytrader.md) | 🔄 Varv 3: daytraderns analyssätt (analys/resultat_daytrader.md) |
 
 Beslut, antaganden och öppna frågor: [docs/beslutslogg.md](docs/beslutslogg.md)
 
@@ -41,14 +43,17 @@ Beslut, antaganden och öppna frågor: [docs/beslutslogg.md](docs/beslutslogg.md
 
 Notisen skickas strax efter kl 13:40 svensk tid. Kommer morgondagens priser sent väntar tjänsten i upp till en timme. GitHub stänger av schemalagda körningar i publika repon efter 60 dagar utan aktivitet. Den nattliga körningen håller dem igång, och skulle de ändå stängas av får du ett mejl från GitHub och kan slå på dem under **Actions**. Vill du pausa notiserna, till exempel under en resa, väljer du **Actions → Varna för dyr el → ⋯ → Disable workflow**. Ett arbetsflöde som du har stängt av själv slås inte på igen automatiskt.
 
+### Påminnelser från appen
+Klockknapparna i orderboken lägger en schemalagd notis i samma ntfy-ämne. Fyll i ämnet under **Inställningar → Påminnelser** i appen. Det sparas bara i webbläsaren. ntfy.sh tillåter högst 3 dygns fördröjning, så klockan visas bara för tider inom det.
+
 ### Egna mätvärden
 Ladda ner förbrukningen per timme eller kvart från Jönköping Energis Mina sidor (eller elhandlarens app) och läs in filen under **Inställningar → Mätvärden**. Filen stannar i webbläsaren. Då blir kostnaderna uppmätta i stället för beräknade.
 
 ## Hur det räknas
 
 - **Totalpris** = (spotpris + påslag) × 1,25 + energiskatt 45 öre + överföringsavgift. Fasta avgifter ingår i dygns- och månadskostnaderna.
-- **Normalt** = medianpriset de senaste 30 dygnen. *Dyrt* ≥ 1,4 × normalt, *mycket dyrt* ≥ 2 × normalt.
-- **Varning** ges bara när de dyra perioderna kostar huset minst 25 kr extra det dygnet (går att ändra).
+- **Dagsplanen** jämför varje kvart med de 30 dygnen före dygnet. *Billigt* = bland de 20 % billigaste kvartarna (minst 1 h), *dyrt* = bland de 20 % dyraste (minst 30 min), *normalt* = medianen. Dygnet blir *lugnt*, *svängigt* eller *dra ner*. Dra ner gäller när de dyra perioderna kostar huset minst 25 kr över normalt (går att ändra), och bara då skickas notis.
+- **Orderboken** prövar varje syssla nu och senare inom de kända priserna (högst 24 h fram). Under 1 kr skillnad står det "spelar ingen roll".
 - **Förbrukning** beräknas från årsförbrukningen. Värmedelen följer utetemperaturen och laddhybriden laddas nattens billigaste timmar. Uppmätta värden ersätter beräkningen.
 - **Prisuppskattning** 2–5 dygn: senast kända pris justerat för temperatur, vind och helg ([modell och utvärdering](analys/resultat_prismodell.md)).
 
@@ -56,7 +61,7 @@ Ladda ner förbrukningen per timme eller kvart från Jönköping Energis Mina si
 
 ```
 npm test                 # enhetstester (Node 20+)
-npm run backtest         # efterhandstest av varningarna på senaste årets priser
+npm run backtest         # efterhandstest av dagsplanen, signalen och orderboken på senaste årets priser
 npm run data             # bygg app/data/*.json (prishistorik och temperatur)
 npm run notis            # torrkörning av notisen (skickar bara om NTFY_TOPIC är satt)
 npm run skarmbild -- ut/ # starta appen i Chromium och ta skärmbilder (kräver Playwright)

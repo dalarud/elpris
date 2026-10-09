@@ -83,15 +83,15 @@ export function dagsplan(datum, kvartar, tim, temp, inst) {
   const forb = K.forbrukningDygn(datum, K.normalTemp(temp, datum), inst, K.timpriser(kvartar));
   let kwh = 0, extra = 0, varmeKwh = 0, varmeExtra = 0;
   for (const p of dyra) {
-    let pk = 0, pe = 0;
+    let pk = 0, pe = 0, vk = 0, ve = 0;
     for (const i of p.intervall) {
       const e = forb.total[i.timme] * i.langd / 60;
       const v = forb.delar.varme[i.timme] * i.langd / 60;
       pk += e; pe += e * (i.total - ref.totalMedian);
-      varmeKwh += v; varmeExtra += v * (i.total - ref.totalMedian);
+      vk += v; ve += v * (i.total - ref.totalMedian);
     }
-    p.kwh = pk; p.extra = pe;
-    kwh += pk; extra += pe;
+    Object.assign(p, { kwh: pk, extra: pe, varmeKwh: vk, varmeExtra: ve });
+    kwh += pk; extra += pe; varmeKwh += vk; varmeExtra += ve;
   }
   const besked = !dyra.length ? 'lugnt' : extra >= inst.varningKr ? 'draner' : 'svangigt';
   return {
@@ -187,7 +187,8 @@ export function orderbok({ berikade, nuMs, idag, planer, inst }) {
     }
   }
   // Värmen: sänk under de dyraste 3 timmarna av återstående dyra perioder.
-  const dyraKvar = planer.flatMap((p) => p.dyra).filter((p) => p.slutMs > nuMs);
+  const planMedKvar = planer.find((p) => p.dyra.some((d) => d.slutMs > nuMs));
+  const dyraKvar = planMedKvar ? planMedKvar.dyra.filter((p) => p.slutMs > nuMs) : [];
   if (dyraKvar.length) {
     const delar = Object.fromEntries(planer.map((p) => [p.datum, p.delar]));
     const v = varmeSankning(dyraKvar, berikade, delar, nuMs);
@@ -254,10 +255,12 @@ export function bilFonster({ berikade, nuMs, idag, inst }) {
     sparar: kl18 ? kl18.kr - bast.kr : null };
 }
 
-/** Den ostyrda värmepumpen under dygnets dyra perioder (beräknat). */
-export function varmepumpLage(plan) {
-  if (!plan?.dyra.length) return null;
-  return { kwh: plan.varmeKwh, husKwh: plan.kwh, extra: plan.varmeExtra, tider: tiderText(plan.dyra) };
+/** Den ostyrda värmepumpen under dygnets dyra perioder som inte passerat än (beräknat). */
+export function varmepumpLage(plan, nuMs = -Infinity) {
+  const kvar = (plan?.dyra ?? []).filter((p) => p.slutMs > nuMs);
+  if (!kvar.length) return null;
+  const sum = (f) => kvar.reduce((a, p) => a + f(p), 0);
+  return { kwh: sum((p) => p.varmeKwh), husKwh: sum((p) => p.kwh), extra: sum((p) => p.varmeExtra), tider: tiderText(kvar) };
 }
 
 // ----------------------------------------------------------------- vad-om ----

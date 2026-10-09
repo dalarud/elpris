@@ -36,6 +36,9 @@ export const STANDARD = {
   // minst så här mycket extra jämfört med normalpris. Kalibrerat i
   // analys/resultat_varningar.md: 25 kr ger ungefär en varning i veckan.
   varningKr: 25,
+  // Påminnelser från appen via ntfy (sparas bara i webbläsaren).
+  ntfyAmne: '',
+  ntfyServer: 'https://ntfy.sh',
 };
 
 // Typisk dygnsprofil för hushållsel (utan värme och bil), relativ.
@@ -267,7 +270,7 @@ export function referens(poster, inst) {
     ? ((typeof p === 'number' ? p : p.spot) + inst.paslagOre / 100) * MOMS + inst.energiskatt + inst.overforing.sakring
     : totalpris(p.spot, p.datum, p.timme, inst)));
   // Köp- och säljzon som en trader ser dem: kvartens läge i senaste 30 dygnens intervall.
-  return { spotMedian: median(spot), totalMedian: median(total), p20: kvantil(total, 0.2), p80: kvantil(total, 0.8), p90: kvantil(total, 0.9) };
+  return { spotMedian: median(spot), totalMedian: median(total), p20: kvantil(total, 0.2), p25: kvantil(total, 0.25), p80: kvantil(total, 0.8), p90: kvantil(total, 0.9) };
 }
 
 /** Timposter för referens(): dygnen från och med `fran` till och med `till`. */
@@ -450,14 +453,15 @@ export function varningstext(period, kostnad, ref, idag, billigast = null) {
 
 /**
  * Sysslor som går att flytta i tid. Energi och längd är ungefärliga (ANTAGANDE).
- * timer: maskinen har fördröjd start. dagtid: föreslå bara start kl 07–20.
+ * timer: maskinen har fördröjd start. dagtid: föreslå bara tider då man är
+ * vaken och hemma – start tidigast `fran` och klar senast `klar` (ANTAGANDE).
  */
 export const SYSSLOR = [
   { id: 'tvatt', namn: 'Tvätt', kwh: 1.0, timmar: 2, timer: true, flytta: 'Skjut upp tvätten', tidigare: 'Tvätta före' },
   { id: 'tork', namn: 'Tork', kwh: 2.5, timmar: 2, timer: true, flytta: 'Skjut upp torken', tidigare: 'Kör torken före' },
   { id: 'disk', namn: 'Disk', kwh: 1.0, timmar: 3, timer: true, flytta: 'Starta disken senare', tidigare: 'Diska före' },
-  { id: 'bastu', namn: 'Bastu', kwh: 7, timmar: 2, timer: false, dagtid: true, flytta: 'Vänta med bastun', tidigare: 'Basta före' },
-  { id: 'ugn', namn: 'Ugn', kwh: 1.5, timmar: 1, timer: false, dagtid: true, flytta: 'Vänta med ugnen', tidigare: 'Använd ugnen före' },
+  { id: 'bastu', namn: 'Bastu', kwh: 7, timmar: 2, timer: false, dagtid: true, fran: 10, klar: 21, flytta: 'Vänta med bastun', tidigare: 'Basta före' },
+  { id: 'ugn', namn: 'Ugn', kwh: 1.5, timmar: 1, timer: false, dagtid: true, fran: 10, klar: 20, flytta: 'Vänta med ugnen', tidigare: 'Använd ugnen före' },
 ];
 
 const KLOCKA_SV = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -486,7 +490,8 @@ export function fonsterKostnad(berikade, startMs, timmar, kwh) {
  *  - Maskiner med fördröjd start prövas i hela timmar från nu (det går att ställa),
  *    övriga i hela kvartar (man startar dem själv).
  *  - Högst `maxTimmar` fram (24 h) och bara så långt priserna är kända.
- *  - Dagtid-sysslor (bastu, ugn) startar tidigast 07 och är klara senast 21.
+ *  - Dagtid-sysslor (bastu, ugn) startar tidigast `fran` och är klara senast `klar`;
+ *    för övriga maskiner är "dagtid" (för dagtidsalternativet) 07–21.
  *  - Under GRANS_KR (1 kr) är skillnaden inte värd att planera efter.
  * Returnerar null om inga priser finns. Belopp i kr, alla uppskattningar.
  */
@@ -503,7 +508,7 @@ export function planera(berikade, nuMs, syssla, { maxTimmar = 24 } = {}) {
     if (kr === null) break;
     const klocka = lokalKlocka(t), slut = lokalKlocka(t + syssla.timmar * 3600e3);
     const slutTim = slut.timme + slut.minut / 60 + (slut.datum !== klocka.datum ? 24 : 0);
-    const dagtid = klocka.timme >= DAG_START && slutTim <= KLAR_SENAST;
+    const dagtid = klocka.timme >= (syssla.fran ?? DAG_START) && slutTim <= (syssla.klar ?? KLAR_SENAST);
     kandidater.push({ startMs: t, om: Math.round((t - nuMs) / 3600e3), kr, klocka, slut, dagtid });
   }
   if (!kandidater.length) return null;

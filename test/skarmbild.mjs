@@ -44,8 +44,20 @@ for (const tema of ['light', 'dark']) {
   await sida.waitForSelector('body[data-klar="1"]', { timeout: 90000 }).catch(() => fel.push(`${tema}: sidan blev aldrig klar`));
   await sida.screenshot({ path: join(UT, `elkollen-${tema}.png`), fullPage: true });
   if (tema === 'light') {
-    await sida.click('button[data-syssla="tork"]');
-    await sida.screenshot({ path: join(UT, 'elkollen-tork.png'), fullPage: false, clip: await sida.locator('#sysslor').boundingBox() });
+    // Signalen med kursen utfälld och en vald tid i remsan (vad-om).
+    await sida.click('#kurs > summary');
+    const remsa = await sida.locator('#remsa').boundingBox();
+    if (remsa) await sida.mouse.click(remsa.x + remsa.width * 0.3, remsa.y + remsa.height / 2);
+    await sida.locator('#signal').screenshot({ path: join(UT, 'elkollen-signal.png') });
+    // Ny order
+    await sida.click('#ny-order');
+    await sida.screenshot({ path: join(UT, 'elkollen-order.png') });
+    await sida.click('#orderform button[value="lagg"]');
+    await sida.waitForTimeout(200);
+    await sida.locator('#orderbok').screenshot({ path: join(UT, 'elkollen-orderbok.png') });
+    await sida.click('#mer > summary');
+    await sida.waitForTimeout(200);
+    await sida.locator('#mer').screenshot({ path: join(UT, 'elkollen-mer.png') });
     await sida.click('#oppna-installningar');
     await sida.screenshot({ path: join(UT, 'elkollen-installningar.png') });
   }

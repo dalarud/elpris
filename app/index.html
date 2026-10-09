@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Elkollen</title>
-  <meta name="description" content="Överblick över dina elkostnader och varningar när elen blir dyr.">
+  <meta name="description" content="Dina elkostnader, när du ska köra och när du ska dra ner – i kronor.">
   <meta name="theme-color" content="#0f766e">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="ikon.svg" type="image/svg+xml">
@@ -24,25 +24,43 @@
 
   <main id="innehall">
     <section class="kort laddar" id="manad"><p>Hämtar priser …</p></section>
-    <section class="kort laget" id="laget" hidden></section>
-    <section id="draner" aria-live="polite"></section>
-    <section class="kort" id="sysslor" hidden></section>
+    <section class="kort signal" id="signal" hidden aria-live="polite"></section>
+    <section class="kort orderbok" id="orderbok" hidden></section>
     <section class="kort" id="dagar" hidden></section>
     <details class="kort mer" id="mer">
-      <summary>Mer: fördelning, 12 månader och hur det räknas</summary>
+      <summary>Mer: positioner, i fjol, prissäkring och hur det räknas</summary>
       <div id="mer-innehall"></div>
       <h3>Så räknar Elkollen</h3>
       <ul>
         <li><strong>Priset</strong> per kWh är allt du betalar: spotpris och påslag (med moms), energiskatt och elnätets överföringsavgift. Månadens kostnad räknar också med de fasta avgifterna.</li>
-        <li><strong>Normalt</strong> är medianpriset de senaste 30 dygnen. <em>Dyrt</em> är minst 40 % över normalt och <em>mycket dyrt</em> minst dubbelt så mycket.</li>
-        <li><strong>Dra ner-läge</strong> är utfällt när de dyra timmarna kostar huset minst 25 kr extra det dygnet; annars visas dygnets dyra perioder som en hopfälld rad. Det går att ändra under Inställningar. Beloppen för varje åtgärd är uppskattningar.</li>
-        <li><strong>När ska jag köra?</strong> prövar att starta nu eller om 1, 2, 3 … timmar, så långt priserna är kända. Morgondagens priser kommer kl 13.</li>
+        <li><strong>Dagsplanen</strong> räknas en gång per dygn och jämför varje kvart med de 30 dygnen före. <em>Billigt</em> = bland de 20 % billigaste kvartarna, i minst en timme. <em>Dyrt</em> = bland de 20 % dyraste, i minst 30 minuter. <em>Normalt</em> = medianen.</li>
+        <li><strong>Lugnt, svängigt, dra ner</strong>: ett dygn utan dyr period är lugnt. Har det dyra perioder är det svängigt, och dra ner om de kostar huset minst 25 kr över normalpris (räknat med normaltemperatur, så att appen och notisen alltid säger samma sak). Bara dra ner-dygn är röda och ger notis.</li>
+        <li><strong>Signalen</strong> gäller maskinerna med fördröjd start: <em>Vänta</em> om de sparar minst 1 kr på att vänta, <em>Kör nu</em> om det är billigt nu eller blir dyrare om du väntar, annars <em>Spelar ingen roll</em>.</li>
+        <li><strong>Orderboken</strong> prövar för varje syssla att starta nu och senare (maskiner med timer i hela timmar, övriga i kvartar), högst 24 h fram och bara med kända priser. Bastun föreslås bara kl 10–21 och ugnen kl 10–20 (antaganden). Under 1 kr skillnad spelar det ingen roll.</li>
+        <li><strong>Egna ordrar</strong> körs i bästa fönstret före din tid. Är alla priser fram till dess inte kända än väntar ordern på nästa dygns priser, om inte ett känt fönster redan klarar ditt pristak.</li>
+        <li><strong>Påminnelser</strong> skickas som ett schemalagt ntfy-meddelande (högst 3 dygn fram). Maskiner med timer som ska gå på natten påminns kvällen före.</li>
         <li>Dagar längre fram (≈) är en <strong>uppskattning</strong> från senaste priserna och SMHI:s väderprognos. I test stämde ungefär 6 av 10 varningar.</li>
-        <li>Husets förbrukning är <strong>beräknad</strong> från årsförbrukningen och utetemperaturen tills du laddar upp egna mätvärden.</li>
+        <li>Husets förbrukning är <strong>beräknad</strong> från årsförbrukningen och utetemperaturen tills du laddar upp egna mätvärden. Sysslornas kWh och längd är antaganden.</li>
       </ul>
       <p class="undertext">Data: <a href="https://www.elprisetjustnu.se">Elpriset just nu.se</a> (ENTSO-E) och <a href="https://www.smhi.se/data">SMHI</a>. <a href="https://github.com/dalarud/elpris">Källkod och dokumentation</a>.</p>
     </details>
   </main>
+
+  <dialog id="orderdialog">
+    <form method="dialog" id="orderform">
+      <h2>Ny order</h2>
+      <label>Syssla <select name="syssla"></select></label>
+      <label>Klar senast
+        <span class="rad"><select name="dag"></select><input type="time" name="tid" step="900" required></span>
+      </label>
+      <label>Högst (kr/kWh, valfritt) <input type="number" name="maxPris" min="0" step="any" inputmode="decimal"></label>
+      <p class="undertext" id="order-tips"></p>
+      <div class="knappar">
+        <button type="button" class="knapp-sekundar" id="order-avbryt">Avbryt</button>
+        <button value="lagg" class="knapp">Lägg order</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="installningar">
     <form method="dialog" id="installningsform">
@@ -87,6 +105,12 @@
         <legend>Varningar</legend>
         <label>Varna när dyra perioder kostar huset minst (kr extra per dygn) <input type="number" name="varningKr" min="0" step="any" inputmode="decimal"></label>
         <p class="undertext">Varningar skickas automatiskt kl 13 dagen före via appen <a href="https://ntfy.sh">ntfy</a>. Instruktioner finns i <a href="https://github.com/dalarud/elpris#varningar-i-mobilen">README</a>.</p>
+      </fieldset>
+      <fieldset>
+        <legend>Påminnelser</legend>
+        <label>ntfy-ämne <input type="text" name="ntfyAmne" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="samma som du prenumererar på i ntfy-appen"></label>
+        <label>ntfy-server <input type="url" name="ntfyServer" autocomplete="off" spellcheck="false"></label>
+        <p class="undertext">Behövs för klockknapparna. Ämnet sparas bara i den här webbläsaren. Den som känner till ämnesnamnet kan läsa meddelandena – välj ett svårgissat namn.</p>
       </fieldset>
       <div class="knappar">
         <button type="button" class="knapp-sekundar" id="aterstall">Återställ</button>

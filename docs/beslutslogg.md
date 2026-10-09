@@ -24,9 +24,16 @@ Här samlas beslut (B), antaganden (A) och öppna frågor (F) i den ordning de u
 | B16 | 2026-10-09 | Granska koden före sammanslagning och rätta alla 29 fynd (se 05-forsta-versionen.md). | Sammanslagningen gör appen publik och startar notiserna. | Slå ihop direkt. |
 | B17 | 2026-10-09 | Dagens väder = SMHI:s timmätningar för passerade timmar + prognos för resten. Dygn som täcks av färre än 20 timmar används inte i prismodellen. | Modellen är tränad på hela dygns medel. Ett halvt dygn gav 14–18 % fel. | Bara prognos; hoppa över prognosen före kl 13. |
 | B18 | 2026-10-09 | Notisens körning väljs utifrån cron-uttrycket, inte klockfönster. Väntar in sena priser i upp till 60 min. | Robust mot GitHubs fördröjningar; exakt en notis per dag. | Klockfönster 13:15–14:35 (gav dubbla eller uteblivna notiser vid fördröjning). |
-| B19 | 2026-10-09 | **Förenklad startvy** i ordningen månadens kostnad, läget nu, Dra ner-läge, När ska jag köra?, dagrad och Mer (hopfällt). | Användaren: "plottrigt … för lite stödjande". Valde själv funktioner och startvy. | Behålla detaljvyerna (prisremsor, långa varningar). |
-| B20 | 2026-10-09 | **När ska jag köra?** prövar start nu och om hela timmar (fördröjd start), bara inom kända priser. Under 1 kr skillnad står det "Kör när det passar dig". Bastu och ugn bara dagtid. | Matchar maskinernas timer, är ärligt när det inte spelar roll och undviker orimliga förslag. | Exakt billigaste kvart; prognospriser. |
-| B21 | 2026-10-09 | **Dra ner-läge** som checklista med kronor per åtgärd. Utfälld vid varningsdygn, annars en hopfälld rad för nästa dyra period. | Ger stöd utan att ta plats de flesta dagar. | Visa alltid; visa bara vid varning (då syns det sällan). |
+| B19 | 2026-10-09 | *(Ersatt av B22.)* **Förenklad startvy** i ordningen månadens kostnad, läget nu, Dra ner-läge, När ska jag köra?, dagrad och Mer (hopfällt). | Användaren: "plottrigt … för lite stödjande". Valde själv funktioner och startvy. | Behålla detaljvyerna (prisremsor, långa varningar). |
+| B20 | 2026-10-09 | *(Ersatt av B24.)* **När ska jag köra?** prövar start nu och om hela timmar (fördröjd start), bara inom kända priser. Under 1 kr skillnad står det "Kör när det passar dig". Bastu och ugn bara dagtid. | Matchar maskinernas timer, är ärligt när det inte spelar roll och undviker orimliga förslag. | Exakt billigaste kvart; prognospriser. |
+| B21 | 2026-10-09 | *(Ersatt av B25.)* **Dra ner-läge** som checklista med kronor per åtgärd. Utfälld vid varningsdygn, annars en hopfälld rad för nästa dyra period. | Ger stöd utan att ta plats de flesta dagar. | Visa alltid; visa bara vid varning (då syns det sällan). |
+| B22 | 2026-10-09 | **Varv 3: daytraderns analyssätt** (docs/07-daytrader.md). Startvy: månaden, signalen med zonremsa, orderboken, kommande dagar, Mer. | Användarens uppdrag. Konceptet Order fick bäst betyg av två granskare (30–31 av 40). | Terminal light med kursgraf först; Resultat/P&L först. |
+| B23 | 2026-10-09 | **Dagsplanen** låser billigt (≤ 20:e percentilen, ≥ 1 h) och dyrt (≥ 80:e, ≥ 30 min) per dygn mot de 30 dygnen *före*. Beskedet blir lugnt, svängigt eller dra ner (≥ 25 kr över normalt, räknat med normaltemperatur). | Traderns nivåer är relativa. En plan som inte flyttar sig under dagen, och samma besked i appen och notisen. 66 dra ner-dygn per år. | Nivåer som faktor × median (1,4/2,0), rullande 30 dygn (flyttade sig vid midnatt). |
+| B24 | 2026-10-09 | **En ordermotor** (`planera`) för allt: timer i hela timmar, övriga i kvartar, högst 24 h, bastu 10–21, ugn 10–20, gräns 1 kr, "starta före X", dagtidsalternativ bara om det är nästan lika billigt. | Granskningen av varv 2: två beräkningar gav olika tider och belopp för samma maskin. | Separat dra ner-beräkning mot periodens medelpris. |
+| B25 | 2026-10-09 | **Orderboken** ersätter När ska jag köra? och Dra ner: en lista sorterad efter kronor, och på dra ner-dygn med rubrik, exponering och bockar. Bockar blir en journal ("Flyttat i oktober"). | En lista att agera på i stället för två delar med knappar. | Knapp per syssla; checklista per period. |
+| B26 | 2026-10-09 | **Kursvy bakom tryck** och zonremsa med vad-om i startvyn. | Användarens val. | Bara remsa; kursvy direkt på svängiga dygn. |
+| B27 | 2026-10-09 | **Påminnelser och egna ordrar.** Påminnelse = schemalagt ntfy-meddelande från webbläsaren (≤ 3 dygn, sekvens-id så att det kan flyttas eller tas bort). Order = syssla + klar senast + pristak (förslag: 25:e percentilen) med bästa kända tid som reserv. | Användarens val. Limitregeln tog 82 % av vinsten i analysen; med kända priser används facit. | Bara notis kl 13:40 (varv 2-läget). |
+| B28 | 2026-10-09 | Notisen bygger på dagsplanen och skickas bara på dra ner-dygn. Rättar att notisen läste temperaturfilen fel (normaltemperaturen blev alltid 7 °C). | Samma beräkning i appen och notisen. | — |
 
 ## Kända fakta om hushållet (från användaren 2026-10-08)
 
@@ -53,6 +60,9 @@ Här samlas beslut (B), antaganden (A) och öppna frågor (F) i den ordning de u
 | A8 | Diskmaskin / tvätt / tork | 1,0 / 0,8 / 2,0 kWh per körning; 250 / 150 / 150 körningar per år | Vitvarornas besparing |
 | A9 | Elhandlarens påslag | 4 öre/kWh + 49 kr/mån | Elräkningens storlek (inte tidsvärdet) |
 | A10 | Bensin | 19 kr/l, 0,65 l/mil i hybridläge; el 2 kWh/mil | Brytpunkt el eller bensin |
+| A11 | Sysslor (varv 3) | Tvätt 1,0 kWh/2 h, tork 2,5/2, disk 1,0/3 (timer); bastu 7/2 kl 10–21, ugn 1,5/1 kl 10–20 | Orderbokens tider och belopp |
+| A12 | Körningar per vecka (efterhandstest) | Tvätt 4, tork 3, disk 5, bastu 1, ugn 4 | Orderbokens värde ≈ 1 160 kr/år |
+| A13 | Bilens laddning (orderbokens kontrollrad) | 2 500 kWh/år = 6,8 kWh/natt vid 3,7 kW, kl 22–07 | Laddfönstret som visas |
 
 ## Öppna frågor
 
