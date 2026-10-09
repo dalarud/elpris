@@ -1,5 +1,6 @@
-// Efterhandstest av varningarna på verkliga priser: hur ofta hade Elkollen varnat
-// senaste 12 månaderna, stämde förvarningarna, och vad hade det sparat att dra ner?
+// Efterhandstest av dagsplanen, signalen och orderboken på verkliga priser
+// senaste 12 månaderna: hur ofta blir dygnet lugnt, svängigt eller dra ner, vad
+// säger signalen, vad är orderboken värd och stämde förvarningarna?
 // Skriver analys/resultat_varningar.md.
 //
 // Kör: node test/backtest.mjs
@@ -9,6 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as K from '../app/js/kalkyl.js';
 import { prisprognos } from '../app/js/prognos.js';
+import * as P from '../app/js/plan.js';
 
 const ROT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const inst = { ...K.STANDARD };
@@ -23,7 +25,7 @@ const intervallPerDag = {};
 for (const r of readFileSync(join(ROT, 'data', 'spotpris_SE3.csv'), 'utf8').trim().split('\n').slice(1)) {
   const [start, slut, sek] = r.split(',');
   const t = K.lokalTid(start);
-  (intervallPerDag[t.datum] ??= []).push({ start, slut, ...t, langd: Math.round((new Date(slut) - new Date(start)) / 6e4), spot: Number(sek) });
+  (intervallPerDag[t.datum] ??= []).push({ start, slut, t0: Date.parse(start), ...t, langd: Math.round((new Date(slut) - new Date(start)) / 6e4), spot: Number(sek) });
 }
 const vaderRader = readFileSync(join(ROT, 'data', 'vader_daglig.csv'), 'utf8').trim().split('\n');
 const kol = vaderRader[0].split(',');
@@ -43,55 +45,69 @@ const dygnspris = Object.fromEntries(Object.entries(tim).map(([d, v]) => [d, K.m
 // --- simulering ---
 const sista = Object.keys(intervallPerDag).sort().at(-1);
 const fran = K.laggTillDagar(sista, -366);
+const ny = () => ({ dagar: 0, lugnt: 0, svangigt: 0, draner: 0, timmar: 0, extra: 0, besparing: 0, forv: 0, forvRatt: 0, dyraDagar: 0, dyraForvarnade: 0 });
 const perManad = {};
 const forvarningar = [];
-let summaExtra = 0, summaBesparing = 0, summaExtraAlla = 0;
+const signaler = { 12: {}, 20: {} };
+// ANTAGANDE: så här ofta körs sysslorna per vecka (för orderbokens värde per år).
+const PER_VECKA = { tvatt: 4, tork: 3, disk: 5, bastu: 1, ugn: 4 };
+const order = Object.fromEntries(K.SYSSLOR.map((x) => [x.id, { n: 0, sparar: 0, varde1: 0 }]));
+let summaExtra = 0, summaBesparing = 0;
+const planCache = {};
+const plan = (d) => (planCache[d] ??= intervallPerDag[d] ? P.dagsplan(d, intervallPerDag[d], tim, tempJkpg, inst) : null);
+const klockan = (d, h) => intervallPerDag[d]?.find((i) => i.timme === h && i.minut === 0)?.t0;
 
 for (let idag = fran; K.laggTillDagar(idag, 1) <= sista; idag = K.laggTillDagar(idag, 1)) {
   const imorgon = K.laggTillDagar(idag, 1);
-  const m = imorgon.slice(0, 7);
-  const rad = (perManad[m] ??= { dagar: 0, dyraPeriodDagar: 0, varningsdagar: 0, mycket: 0, perioder: 0, timmar: 0, extra: 0, besparing: 0, forv: 0, forvRatt: 0, dyraDagar: 0, dyraForvarnade: 0 });
+  const rad = (perManad[imorgon.slice(0, 7)] ??= ny());
   rad.dagar++;
-  const ref = K.referens(K.posterFranTimpriser(tim, K.laggTillDagar(idag, -29), idag), inst);
-  const iv = intervallPerDag[imorgon];
-  const kostnad = K.dygnskostnad(imorgon, tim[imorgon], tempJkpg[imorgon], inst);
-  const modellDygn = K.forbrukningDygn(imorgon, tempJkpg[imorgon], inst, tim[imorgon]);
-  const berikade = K.berika(iv, ref, inst);
-  // Husets merkostnad över normalpris hela dygnet (för att se hur stor del varningarna täcker)
-  for (const i of berikade) summaExtraAlla += Math.max(0, kostnad.kwhTim[i.timme] * i.langd / 60 * (i.total - ref.totalMedian));
-  const allaPerioder = K.dyraPerioder(berikade);
-  const dygn = K.dygnsvarningar(allaPerioder, { [imorgon]: kostnad.kwhTim }, ref, inst).find((d) => d.datum === imorgon);
-  if (allaPerioder.length) rad.dyraPeriodDagar++;
-  const perioder = dygn?.varna ? allaPerioder : [];
-  if (perioder.length) {
-    rad.varningsdagar++;
-    if (dygn.niva === 'mycket-dyrt') rad.mycket++;
-  }
-  for (const p of perioder) {
-    rad.perioder++;
-    rad.timmar += p.minuter / 60;
-    const k = K.periodKostnad(p, { [imorgon]: kostnad.kwhTim }, ref);
-    rad.extra += Math.max(0, k.extra);
-    summaExtra += Math.max(0, k.extra);
-    // Dra ner: tvätt, tork, disk m.m. flyttas till dygnets billigaste 3 timmar;
-    // värmen tas igen de 3 timmarna efter perioden (huset har svalnat lite).
-    let husKwh = 0, varmeKwh = 0, krFore = 0, minVarme = 0;
-    for (const i of p.intervall) {
-      const h = i.timme;
-      const varme = minVarme < VARME_MAX_TIMMAR * 60 ? modellDygn.delar.varme[h] * VARME_FLYTT * i.langd / 60 : 0;
-      const hus = modellDygn.delar.hushall[h] * HUSHALL_FLYTT * i.langd / 60;
-      minVarme += i.langd;
-      husKwh += hus; varmeKwh += varme;
-      krFore += (hus + varme) * i.total;
+  // Morgondagens plan, som notisen kl 13:40 och appen ser den.
+  const pl = plan(imorgon);
+  rad[pl.besked]++;
+  if (pl.besked === 'draner') {
+    const verklig = K.forbrukningDygn(imorgon, tempJkpg[imorgon], inst, tim[imorgon]);
+    let husKwh = 0, varmeKwh = 0, krFore = 0, extra = 0;
+    for (const p of pl.dyra) {
+      rad.timmar += p.minuter / 60;
+      let minVarme = 0;
+      for (const i of p.intervall) {
+        const e = verklig.total[i.timme] * i.langd / 60;
+        extra += e * (i.total - pl.ref.totalMedian);
+        const varme = minVarme < VARME_MAX_TIMMAR * 60 ? verklig.delar.varme[i.timme] * VARME_FLYTT * i.langd / 60 : 0;
+        const hus = verklig.delar.hushall[i.timme] * HUSHALL_FLYTT * i.langd / 60;
+        minVarme += i.langd;
+        husKwh += hus; varmeKwh += varme; krFore += (hus + varme) * i.total;
+      }
     }
-    const efter = berikade.filter((i) => i.start >= p.slut).slice(0, FLYTT_TILL_TIMMAR * 4);
-    const nasta = efter.length ? efter : (intervallPerDag[K.laggTillDagar(imorgon, 1)] ?? []).slice(0, FLYTT_TILL_TIMMAR * 4)
-      .map((i) => ({ ...i, total: K.totalpris(i.spot, i.datum, i.timme, inst) }));
-    const prisEfter = nasta.length ? K.medel(nasta.map((i) => i.total)) : ref.totalMedian;
-    const billigast = K.billigasteFonster(berikade, 3)?.medel ?? prisEfter;
-    const besparing = krFore - husKwh * billigast - varmeKwh * prisEfter * 1.05;   // 5 % extra energi för att ta igen värmen
-    rad.besparing += besparing;
-    summaBesparing += besparing;
+    const sistaDyr = pl.dyra.at(-1);
+    const efter = [...pl.kvartar, ...(plan(K.laggTillDagar(imorgon, 1))?.kvartar ?? [])].filter((i) => i.t0 >= sistaDyr.slutMs).slice(0, FLYTT_TILL_TIMMAR * 4);
+    const prisEfter = efter.length ? K.medel(efter.map((i) => i.total)) : pl.ref.totalMedian;
+    const billigast = pl.billiga.length ? Math.min(...pl.billiga.map((p) => p.medelTotal)) : prisEfter;
+    const besparing = krFore - husKwh * billigast - varmeKwh * prisEfter * 1.05;
+    rad.extra += extra; summaExtra += extra;
+    rad.besparing += besparing; summaBesparing += besparing;
+  }
+  // Signalen kl 12 (bara dagens priser kända) och kl 20 (även morgondagens).
+  for (const h of [12, 20]) {
+    const nuMs = klockan(idag, h);
+    if (!nuMs) continue;
+    const planer = [plan(idag), h >= 13 ? plan(imorgon) : null].filter(Boolean);
+    const sig = P.signal({ planer, berikade: planer.flatMap((p) => p.kvartar), nuMs, idag });
+    signaler[h][sig.ord] = (signaler[h][sig.ord] ?? 0) + 1;
+  }
+  // Orderboken kl 18: vad sparar varje syssla på att följa raden i stället för att köra direkt?
+  const kl18 = klockan(idag, 18);
+  if (kl18 && plan(imorgon)) {
+    const berikade = [plan(idag), plan(imorgon)].flatMap((p) => p.kvartar);
+    for (const sy of K.SYSSLOR) {
+      const r = K.planera(berikade, kl18, sy);
+      const bas = r?.nu ?? r?.kandidater.find((c) => !sy.dagtid || c.dagtid);
+      if (!r?.bast || !bas) continue;
+      const o = order[sy.id];
+      o.n++;
+      o.sparar += bas.kr - r.bast.kr;
+      if (bas.kr - r.bast.kr >= K.GRANS_KR) o.varde1++;
+    }
   }
   // Förvarning 3 dygn fram, med uppmätt väder i stället för prognos (optimistiskt)
   const mal = K.laggTillDagar(idag, 3);
@@ -99,7 +115,7 @@ for (let idag = fran; K.laggTillDagar(idag, 1) <= sista; idag = K.laggTillDagar(
     .find((x) => x.datum === mal);
   if (pr && dygnspris[mal] !== undefined) {
     const verkligDyr = dygnspris[mal] >= 1.5 * pr.median30 && dygnspris[mal] >= 0.5;
-    const mrad = (perManad[mal.slice(0, 7)] ??= { dagar: 0, dyraPeriodDagar: 0, varningsdagar: 0, mycket: 0, perioder: 0, timmar: 0, extra: 0, besparing: 0, forv: 0, forvRatt: 0, dyraDagar: 0, dyraForvarnade: 0 });
+    const mrad = (perManad[mal.slice(0, 7)] ??= ny());
     if (pr.dyr) { mrad.forv++; if (verkligDyr) mrad.forvRatt++; }
     if (verkligDyr) { mrad.dyraDagar++; if (pr.dyr) mrad.dyraForvarnade++; }
     forvarningar.push({ mal, dyr: pr.dyr, verkligDyr });
@@ -109,32 +125,58 @@ for (let idag = fran; K.laggTillDagar(idag, 1) <= sista; idag = K.laggTillDagar(
 // --- rapport ---
 const MAN = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
 const ut = [];
-const w = (s = '') => ut.push(s);
-const rader = Object.entries(perManad).filter(([m]) => m >= fran.slice(0, 7) && m <= sista.slice(0, 7)).sort();
+const w = (x = '') => ut.push(x);
+const rader = Object.entries(perManad).filter(([m]) => m >= K.laggTillDagar(fran, 1).slice(0, 7) && m <= sista.slice(0, 7)).sort();
 const sum = (f) => rader.reduce((a, [, r]) => a + f(r), 0);
-w('# Efterhandstest av varningarna');
+const dagar = sum((r) => r.dagar);
+w('# Efterhandstest av dagsplanen, signalen och orderboken');
 w();
-w(`Genererad av \`test/backtest.mjs\`. Varje dygn ${K.laggTillDagar(fran, 1)} – ${sista} har simulerats som om Elkollen kört kl 13:30 dagen före, med verkliga kvartspriser och Jönköping Energis säkringstariff. Husets förbrukning är beräknad (20 520 kWh/år, verklig temperatur i Jönköping).`);
+w(`Genererad av \`test/backtest.mjs\`. Varje dygn ${K.laggTillDagar(fran, 1)} – ${sista} har simulerats med verkliga kvartspriser och Jönköping Energis säkringstariff. Husets förbrukning är beräknad (20 520 kWh/år).`);
 w();
-w(`**Varning (känt pris)** = de dyra perioderna i morgon (minst 30 min med totalpris minst 40 % över normalt, median 30 dygn) kostar huset minst ${inst.varningKr} kr extra. Kolumnen "Dygn med dyra perioder" visar hur ofta det hade varnats utan kronorgränsen.`);
+w('**Dagsplanen** jämför varje kvart med de 30 dygnen före. *Dyrt* = vid eller över 80:e percentilen i minst 30 minuter, *billigt* = vid eller under 20:e percentilen i minst en timme. Beskedet för dygnet:');
+w('- **Lugnt**: ingen dyr period.');
+w(`- **Svängigt**: dyra perioder, men de kostar huset mindre än ${inst.varningKr} kr över normalpris (räknat med normaltemperatur).`);
+w(`- **Dra ner**: de dyra perioderna kostar huset minst ${inst.varningKr} kr över normalpris. Då skickas en notis kl 13:40 dagen före.`);
 w();
-w('** **Förvarning** = dygnet 3 dagar fram uppskattas få ett dygnsmedel ≥ 1,5 × normalt. Förvarningarna är här beräknade med *uppmätt* väder i stället för prognos, och blir därför något för bra – se `analys/resultat_prismodell.md` för utvärdering med prognosfel.');
+w('ANTAGANDE för "dra ner": under de dyra perioderna flyttas 30 % av hushållselen till dygnets billigaste period, och värmepumpen går på halvfart i högst 3 timmar och tar igen det de 3 timmarna efter med 5 % extra energi. Merkostnad och besparing räknas med uppmätt temperatur.');
 w();
-w('ANTAGANDE för "dra ner": under en varnad period flyttas 30 % av hushållselen (tvätt, tork, disk, ugn) till dygnets billigaste 3 timmar, och värmepumpen går på halvfart i högst 3 timmar och tar igen det de 3 timmarna efter perioden med 5 % extra energi.');
-w();
-w('| Månad | Dygn med dyra perioder | Dygn med varning | varav mycket dyrt | Varnade timmar | Husets merkostnad under varningarna | Sparat om du drar ner | Förvarningar (stämde) | Dyra dygn (förvarnade) |');
+w('| Månad | Lugnt | Svängigt | Dra ner | Timmar med dra ner | Husets merkostnad dra ner-dygnen | Sparat om du drar ner | Förvarningar (stämde) | Dyra dygn (förvarnade) |');
 w('|---|---|---|---|---|---|---|---|---|');
 for (const [m, r] of rader) {
-  w(`| ${MAN[+m.slice(5, 7) - 1]} ${m.slice(0, 4)} | ${r.dyraPeriodDagar} | ${r.varningsdagar} av ${r.dagar} | ${r.mycket} | ${K.tal(r.timmar)} | ${K.kr(r.extra)} | ${K.kr(r.besparing)} | ${r.forv} (${r.forvRatt}) | ${r.dyraDagar} (${r.dyraForvarnade}) |`);
+  w(`| ${MAN[+m.slice(5, 7) - 1]} ${m.slice(0, 4)} | ${r.lugnt} | ${r.svangigt} | ${r.draner} | ${K.tal(r.timmar)} | ${K.kr(r.extra)} | ${K.kr(r.besparing)} | ${r.forv} (${r.forvRatt}) | ${r.dyraDagar} (${r.dyraForvarnade}) |`);
 }
-w(`| **Summa** | **${sum((r) => r.dyraPeriodDagar)}** | **${sum((r) => r.varningsdagar)}** | **${sum((r) => r.mycket)}** | **${K.tal(sum((r) => r.timmar))}** | **${K.kr(summaExtra)}** | **${K.kr(summaBesparing)}** | **${sum((r) => r.forv)} (${sum((r) => r.forvRatt)})** | **${sum((r) => r.dyraDagar)} (${sum((r) => r.dyraForvarnade)})** |`);
+w(`| **Summa** | **${sum((r) => r.lugnt)}** | **${sum((r) => r.svangigt)}** | **${sum((r) => r.draner)}** | **${K.tal(sum((r) => r.timmar))}** | **${K.kr(summaExtra)}** | **${K.kr(summaBesparing)}** | **${sum((r) => r.forv)} (${sum((r) => r.forvRatt)})** | **${sum((r) => r.dyraDagar)} (${sum((r) => r.dyraForvarnade)})** |`);
+w();
+w('## Signalen');
+w();
+w('Vad signalen hade sagt kl 12 (bara dagens priser kända) och kl 20 (även morgondagens):');
+w();
+w('| Signal | kl 12 | kl 20 |');
+w('|---|---|---|');
+for (const ord of ['Dra ner', 'Vänta', 'Kör nu', 'Spelar ingen roll']) w(`| ${ord} | ${signaler[12][ord] ?? 0} | ${signaler[20][ord] ?? 0} |`);
+w();
+w('## Orderboken: vad är raderna värda?');
+w();
+w('Beslut kl 18 med kända priser (i dag och i morgon), högst 24 h fram, jämfört med att köra direkt. Bastu och ugn bara dagtid (klara senast 21).');
+w();
+w('| Syssla | Sparat per körning (medel) | Dygn då raden är värd minst 1 kr | Antagna körningar/vecka | ≈ kr/år |');
+w('|---|---|---|---|---|');
+let arSumma = 0;
+for (const sy of K.SYSSLOR) {
+  const o = order[sy.id];
+  const per = o.n ? o.sparar / o.n : 0;
+  const ar = per * PER_VECKA[sy.id] * 52;
+  arSumma += ar;
+  w(`| ${sy.namn} (${K.tal(sy.kwh, 1)} kWh, ${sy.timmar} h) | ${K.kr2(per)} | ${o.varde1} av ${o.n} | ${PER_VECKA[sy.id]} | ${K.kr(ar)} |`);
+}
+w(`| **Summa** | | | | **${K.kr(arSumma)}** |`);
 w();
 const fv = forvarningar.filter((f) => f.dyr), dyra = forvarningar.filter((f) => f.verkligDyr);
 w('## Slutsatser');
 w();
-w(`- Elkollen hade varnat för morgondagen **${sum((r) => r.varningsdagar)} dygn av ${sum((r) => r.dagar)}** (${(100 * sum((r) => r.varningsdagar) / sum((r) => r.dagar)).toFixed(0)} %), varav ${sum((r) => r.mycket)} med *mycket dyrt*. Utan kronorgränsen hade det blivit ${sum((r) => r.dyraPeriodDagar)} dygn – vanliga kvällstoppar som inte är värda en notis.`);
-w(`- Under de varnade perioderna kostade huset ${K.kr(summaExtra)} mer än vid normalpris. Det är ${(100 * summaExtra / summaExtraAlla).toFixed(0)} % av all merkostnad över normalpris under året; resten är korta toppar under 30 minuter eller nivåer strax under gränsen.`);
-w(`- Att dra ner enligt antagandet ovan hade sparat ungefär **${K.kr(summaBesparing)} på ett år** (uppskattning).`);
+w(`- Av ${dagar} dygn var ${sum((r) => r.lugnt)} lugna, ${sum((r) => r.svangigt)} svängiga och **${sum((r) => r.draner)} dra ner-dygn** (${(100 * sum((r) => r.draner) / dagar).toFixed(0)} %, ungefär ${K.tal(sum((r) => r.draner) / 52, 1)} i veckan). Bara dra ner-dygnen ger notis och röd färg.`);
+w(`- Under dra ner-dygnens dyra perioder kostade huset ${K.kr(summaExtra)} mer än vid normalpris. Att dra ner enligt antagandet hade sparat ungefär **${K.kr(summaBesparing)} på ett år** (uppskattning).`);
+w(`- Att följa orderboken för tvätt, tork, disk, bastu och ugn (beslut kl 18) är värt ungefär **${K.kr(arSumma)} per år** med antagna körningar – uppskattning.`);
 w(`- Förvarningar 3 dygn i förväg: ${fv.length} st, varav ${fv.filter((f) => f.verkligDyr).length} stämde (${(100 * fv.filter((f) => f.verkligDyr).length / Math.max(1, fv.length)).toFixed(0)} %). De fångade ${dyra.filter((f) => f.dyr).length} av ${dyra.length} dyra dygn (${(100 * dyra.filter((f) => f.dyr).length / Math.max(1, dyra.length)).toFixed(0)} %).`);
 writeFileSync(join(ROT, 'analys', 'resultat_varningar.md'), ut.join('\n') + '\n');
 console.log(ut.join('\n'));

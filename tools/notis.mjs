@@ -2,8 +2,9 @@
 // Actions strax efter kl 13 när morgondagens priser publicerats.
 //
 // Regler (för att inte tjata):
-//   1. Känt pris: dyra perioder i morgon som kostar huset minst varningKr extra
-//      -> en notis med tider, pris och vad det kostar huset.
+//   1. Känt pris: morgondagens dagsplan (app/js/plan.js) säger "dra ner", dvs. de
+//      dyra perioderna kostar huset minst varningKr över normalpris
+//      -> en notis med tider, pris och de tre åtgärder som är värda mest.
 //   2. Förvarning: om dygnet 3 dagar fram uppskattas bli dyrt -> en notis (märkt uppskattning).
 //   Annars skickas ingenting.
 //
@@ -15,6 +16,7 @@
 //                 svensk tid (sommar/vinter) skickar, och den väntar in sena priser.
 
 import * as K from '../app/js/kalkyl.js';
+import * as P from '../app/js/plan.js';
 import { prisprognos } from '../app/js/prognos.js';
 import { priserDygn, timprisHistorik, vaderprognos, tempHistorik } from '../app/js/data.js';
 import { readFileSync, realpathSync } from 'node:fs';
@@ -53,32 +55,25 @@ export async function byggNotiser(idag, { kallor = {} } = {}) {
   tim[imorgon] = K.timpriser(pImorgon);
   const ref = K.referens(K.posterFranTimpriser(tim, K.laggTillDagar(idag, -30), K.laggTillDagar(idag, -1)), inst);
   const vader = kallor.vader ?? await vaderprognos(inst.plats).catch(() => ({ hem: {}, modell: {} }));
-  const temp = kallor.temp ?? { ...lasJson('temp_jonkoping.json'), ...(await tempHistorik().catch(() => ({}))) };
+  const temp = kallor.temp ?? { ...(lasJson('temp_jonkoping.json').dagar ?? {}), ...(await tempHistorik().catch(() => ({}))) };
   const tempFor = (d) => K.valjTemp(d, temp, vader.hem);
 
   const notiser = [];
-  // 1. Morgondagens dyra perioder
-  const berikade = K.berika(pImorgon, ref, inst);
-  const kwhTim = { [imorgon]: K.dygnskostnad(imorgon, tim[imorgon], tempFor(imorgon), inst).kwhTim };
-  const perioder = K.dyraPerioder(berikade);
-  const dygn = K.dygnsvarningar(perioder, kwhTim, ref, inst).find((d) => d.datum === imorgon);
-  if (dygn?.varna) {
-    const varst = dygn.niva;
-    const tider = dygn.perioder.map((p) => `${p.franTxt}–${p.tillTxt}`).join(' och ');
-    const max = Math.max(...dygn.perioder.map((p) => p.max));
-    const extra = dygn.extra;
-    // Samma konkreta åtgärder (och samma motor) som Dra ner-läget i appen.
-    const delar = { [imorgon]: K.forbrukningDygn(imorgon, tempFor(imorgon), inst, tim[imorgon]).delar };
-    const allaKanda = K.berika([...pIdag, ...pImorgon], ref, inst);
-    const atgarder = K.dranerAtgarder(dygn.perioder, allaKanda, delar, ref, idag, beslutstid(pIdag, kallor.nuMs)).slice(0, 3);
+  // 1. Morgondagens dagsplan – samma beräkning som appen. Notis bara på dra ner-dygn.
+  const plan = P.dagsplan(imorgon, pImorgon, tim, temp, inst);
+  if (plan.besked === 'draner') {
+    const max = Math.max(...plan.dyra.map((p) => p.max));
+    const allaKanda = [...K.berika(pIdag, plan.ref, inst), ...plan.kvartar];
+    const delar = { [imorgon]: plan.delar };
+    const atgarder = K.dranerAtgarder(plan.dyra, allaKanda, delar, plan.ref, idag, beslutstid(pIdag, kallor.nuMs)).slice(0, 3);
     const gor = atgarder.length
       ? ` Gör så här: ${atgarder.map((x) => `${x.text.toLowerCase()} ${x.id === 'varme' ? x.detalj.split(' – ')[0] : `– ${x.nar}`} (≈ ${K.kr(x.sparar)})`).join('; ')}.`
-      : ` ${K.RAD[varst]}`;
+      : '';
     notiser.push({
-      titel: `${K.NIVA_EL[varst]} i morgon ${tider}`,
-      text: `Upp till ${K.krKwh(max)} (normalt ${K.krKwh(ref.totalMedian)}). Huset kostar då ≈ ${K.kr(extra)} mer än vid normalpris.${gor}`,
-      prioritet: varst === 'mycket-dyrt' ? 4 : 3,
-      taggar: varst === 'mycket-dyrt' ? 'rotating_light' : 'warning',
+      titel: `Dra ner i morgon ${P.tiderText(plan.dyra)}`,
+      text: `Upp till ${K.krKwh(max)} (normalt ${K.krKwh(plan.ref.totalMedian)}). Huset ≈ ${K.kr(plan.extra)} över normalt under de dyra timmarna (beräknat).${gor}`,
+      prioritet: plan.extra >= 2 * inst.varningKr ? 4 : 3,
+      taggar: plan.extra >= 2 * inst.varningKr ? 'rotating_light' : 'warning',
     });
   }
   // 2. Förvarning om ett dyrt dygn längre fram
@@ -100,7 +95,7 @@ export async function byggNotiser(idag, { kallor = {} } = {}) {
       taggar: 'crystal_ball',
     });
   }
-  return { notiser, ref, perioder, prognos };
+  return { notiser, ref, plan, prognos };
 }
 
 async function skicka(n) {
