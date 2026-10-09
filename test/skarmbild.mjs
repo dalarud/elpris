@@ -26,6 +26,7 @@ const port = server.address().port;
 
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' }).catch(() => chromium.launch());
 const fel = [];
+const info = [];
 for (const tema of ['light', 'dark']) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, colorScheme: tema, locale: 'sv-SE', timezoneId: 'Europe/Stockholm' });
   await ctx.route(/^https:\/\/(www\.elprisetjustnu\.se|opendata-download-met(fcst|obs)\.smhi\.se)\//, async (route) => {
@@ -33,8 +34,10 @@ for (const tema of ['light', 'dark']) {
     route.fulfill({ status: r.status, body: Buffer.from(await r.arrayBuffer()), headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' } });
   });
   const sida = await ctx.newPage();
-  sida.on('console', (m) => { if (m.type() === 'error') fel.push(`${tema}: ${m.text()}`); });
+  sida.on('console', (m) => { if (m.type() === 'error' && !/status of 404/.test(m.text())) fel.push(`${tema}: ${m.text()}`); });
   sida.on('pageerror', (e) => fel.push(`${tema}: ${e.message}`));
+  // 404 för morgondagens priser före kl 13 är väntat och hanteras av appen.
+  sida.on('response', (r) => { if (r.status() >= 400) info.push(`${tema}: ${r.status()} ${r.url()}`); });
   await sida.goto(`http://127.0.0.1:${port}/`);
   await sida.waitForSelector('#kostnad:not([hidden])', { timeout: 90000 }).catch(() => fel.push(`${tema}: kostnadsdelen visades aldrig`));
   await sida.screenshot({ path: join(UT, `elkollen-${tema}.png`), fullPage: true });
@@ -48,4 +51,5 @@ for (const tema of ['light', 'dark']) {
 }
 await browser.close();
 server.close();
+if (info.length) console.log(`HTTP-fel (kontrollera att de är väntade):\n${info.join('\n')}`);
 console.log(fel.length ? `FEL:\n${fel.join('\n')}` : 'Inga fel i konsolen.');

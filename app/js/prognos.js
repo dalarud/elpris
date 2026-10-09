@@ -18,7 +18,8 @@ export function prisprognos(modell, dygnspris, vader, senast, idag) {
   const hdd = (t) => Math.max(0, modell.HDD_BAS - t);
   const L1 = dygnspris[senast];
   const sju = [], trettio = [];
-  for (let d = 0; d < 30; d++) {
+  // 31 dygn (senast och 30 bakåt), samma fönster som analys/prismodell.py utvärderades med.
+  for (let d = 0; d <= 30; d++) {
     const p = dygnspris[laggTillDagar(senast, -d)];
     if (Number.isFinite(p)) { if (d < 7) sju.push(p); trettio.push(p); }
   }
@@ -29,8 +30,10 @@ export function prisprognos(modell, dygnspris, vader, senast, idag) {
   const ut = [];
   for (let fram = 1; fram <= MAX_DYGN_FRAM + 1; fram++) {
     const mal = laggTillDagar(senast, fram);
-    if (dagarMellan(idag, mal) > MAX_DYGN_FRAM) break;
     const h = dagarMellan(utfardad, mal);
+    // Både avståndet från i dag och modellens horisont får vara högst 5 dygn
+    // (före kl 13 är horisonten ett dygn längre än avståndet från i dag).
+    if (dagarMellan(idag, mal) > MAX_DYGN_FRAM || h > MAX_DYGN_FRAM) break;
     const m = modell.horisonter[String(h)];
     const v = vader[mal];
     if (!m || !v) continue;
@@ -39,13 +42,17 @@ export function prisprognos(modell, dygnspris, vader, senast, idag) {
     const yhat = x.reduce((a, xi, i) => a + xi * m.koef[i], 0);
     const bas = Math.log(L1 + C);
     const p = Math.exp(bas + yhat) - C;
+    const dyr = p >= 1.5 * m30 && p >= 0.5;
     ut.push({
       datum: mal, horisont: h, spot: p,
       spotLag: Math.exp(bas + yhat + m.res_p10) - C,
       spotHog: Math.exp(bas + yhat + m.res_p90) - C,
       temp: v.temp, vind: v.vind, median30: m30,
-      dyr: p >= 1.5 * m30 && p >= 0.5,
-      orsak: orsak(v, vader[senast], helg(mal), helg(senast), p >= L1),
+      dyr,
+      // Skäl anges bara när prognosen pekar uppåt; ett dyrt dygn under dagens nivå
+      // är dyrt för att priset redan ligger högt (hogtLage).
+      orsak: p >= L1 ? orsak(v, vader[senast], helg(mal), helg(senast), true) : (dyr ? [] : orsak(v, vader[senast], helg(mal), helg(senast), false)),
+      hogtLage: dyr && p < L1,
     });
   }
   return ut;
@@ -66,29 +73,86 @@ function orsak(v, senast, helgMal, helgSenast, upp) {
   return delar;
 }
 
-/** SMHI punktprognos (snow1g) -> dygnsmedel av temperatur och vind per datum (svensk tid). */
-export function smhiDygn(smhi) {
-  const per = {};
-  for (const ts of smhi.timeSeries) {
-    const datum = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit' })
-      .format(new Date(ts.time));
-    (per[datum] ??= { temp: [], vind: [] });
-    if (Number.isFinite(ts.data.air_temperature)) per[datum].temp.push(ts.data.air_temperature);
-    if (Number.isFinite(ts.data.wind_speed)) per[datum].vind.push(ts.data.wind_speed);
-  }
+const DATUM_SV = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false });
+/** Lokal (svensk) datum-timme-nyckel 'YYYY-MM-DD HH' för en tidpunkt i ms. */
+function timnyckel(ms) {
+  const d = Object.fromEntries(DATUM_SV.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  return `${d.year}-${d.month}-${d.day} ${d.hour === '24' ? '00' : d.hour}`;
+}
+
+/**
+ * SMHI punktprognos (snow1g) -> värden per hel timme { 'YYYY-MM-DD HH': { temp, vind } }.
+ * Prognosen har timsteg de första dygnen och sedan 3–12 timmar mellan stegen;
+ * mellanliggande timmar interpoleras linjärt så att dygnsmedlet blir tidsvägt.
+ */
+export function smhiTimmar(smhi) {
+  const pkt = (smhi?.timeSeries ?? [])
+    .map((ts) => ({ t: Date.parse(ts.time), temp: ts.data?.air_temperature, vind: ts.data?.wind_speed }))
+    .filter((p) => Number.isFinite(p.t)).sort((a, b) => a.t - b.t);
   const ut = {};
-  for (const [d, v] of Object.entries(per)) ut[d] = { temp: medel(v.temp), vind: medel(v.vind) };
+  for (let i = 0; i < pkt.length; i++) {
+    const a = pkt[i], b = pkt[i + 1];
+    const steg = b ? Math.round((b.t - a.t) / 3600e3) : 1;
+    for (let k = 0; k < Math.max(1, steg); k++) {
+      const f = b ? k / steg : 0;
+      const varde = (x, y) => (Number.isFinite(x) && Number.isFinite(y) ? x + (y - x) * f : (k === 0 && Number.isFinite(x) ? x : undefined));
+      ut[timnyckel(a.t + k * 3600e3)] = { temp: varde(a.temp, b?.temp), vind: varde(a.vind, b?.vind) };
+    }
+  }
   return ut;
 }
 
-/** Medel över flera orter: { datum: { temp, vind } } från temp- och vindorter. */
+/** SMHI metobs (timvärden, period latest-day) -> { 'YYYY-MM-DD HH': varde } för fältet `falt`. */
+export function obsTimmar(metobs, falt) {
+  const ut = {};
+  for (const v of metobs?.value ?? []) {
+    const x = Number(v.value);
+    if (Number.isFinite(x)) ut[timnyckel(v.date)] = { [falt]: x };
+  }
+  return ut;
+}
+
+/** Slår ihop timvärden: uppmätta (passerade timmar) går före prognosen. */
+export function slaIhopTimmar(prognos, ...uppmatt) {
+  const ut = {};
+  for (const [k, v] of Object.entries(prognos ?? {})) ut[k] = { ...v };
+  for (const obs of uppmatt) for (const [k, v] of Object.entries(obs ?? {})) ut[k] = { ...(ut[k] ?? {}), ...v };
+  return ut;
+}
+
+/** Timvärden -> dygnsmedel { datum: { temp, vind, timmarTemp, timmarVind } }. */
+export function dygnFranTimmar(timmar) {
+  const per = {};
+  for (const [k, v] of Object.entries(timmar ?? {})) {
+    const d = (per[k.slice(0, 10)] ??= { temp: [], vind: [] });
+    if (Number.isFinite(v.temp)) d.temp.push(v.temp);
+    if (Number.isFinite(v.vind)) d.vind.push(v.vind);
+  }
+  const ut = {};
+  for (const [d, v] of Object.entries(per)) ut[d] = { temp: medel(v.temp), vind: medel(v.vind), timmarTemp: v.temp.length, timmarVind: v.vind.length };
+  return ut;
+}
+
+/** Bakåtkompatibelt: SMHI-prognos direkt till dygnsmedel. */
+export function smhiDygn(smhi) {
+  return dygnFranTimmar(smhiTimmar(smhi));
+}
+
+export const MIN_TIMMAR = 20;   // ett dygn måste täckas nästan helt för att räknas
+
+/**
+ * Medel över flera orter: { datum: { temp, vind } } från temp- och vindorter.
+ * Ett dygn tas bara med om alla orter täcker det nästan helt (MIN_TIMMAR), annars
+ * blir medlet skevt (t.ex. dagens dygn när bara kvällens prognos finns kvar).
+ * Dygn utan timräkning (äldre format/testdata) godtas som de är.
+ */
 export function kombineraVader(tempOrter, vindOrter) {
   const datum = new Set([...tempOrter.flatMap((o) => Object.keys(o)), ...vindOrter.flatMap((o) => Object.keys(o))]);
+  const tackt = (v, falt) => v && Number.isFinite(v[falt]) && (v[falt === 'temp' ? 'timmarTemp' : 'timmarVind'] ?? 24) >= MIN_TIMMAR;
   const ut = {};
   for (const d of datum) {
-    const t = medel(tempOrter.map((o) => o[d]?.temp));
-    const w = medel(vindOrter.map((o) => o[d]?.vind));
-    if (Number.isFinite(t) && Number.isFinite(w)) ut[d] = { temp: t, vind: w };
+    if (!tempOrter.every((o) => tackt(o[d], 'temp')) || !vindOrter.every((o) => tackt(o[d], 'vind'))) continue;
+    ut[d] = { temp: medel(tempOrter.map((o) => o[d].temp)), vind: medel(vindOrter.map((o) => o[d].vind)) };
   }
   return ut;
 }
@@ -96,16 +160,16 @@ export function kombineraVader(tempOrter, vindOrter) {
 // Orter som modellen tränades på (SMHI-stationernas positioner).
 export const PROGNOSORTER = {
   temp: [
-    { namn: 'Jönköping', lat: 57.7514, lon: 14.0733 },
-    { namn: 'Stockholm', lat: 59.3417, lon: 18.0549 },
-    { namn: 'Göteborg', lat: 57.7156, lon: 11.9924 },
-    { namn: 'Malmö', lat: 55.5715, lon: 13.0708 },
+    { namn: 'Jönköping', lat: 57.7514, lon: 14.0733, station: 74460 },
+    { namn: 'Stockholm', lat: 59.3417, lon: 18.0549, station: 98230 },
+    { namn: 'Göteborg', lat: 57.7156, lon: 11.9924, station: 71420 },
+    { namn: 'Malmö', lat: 55.5715, lon: 13.0708, station: 52350 },
   ],
   vind: [
-    { namn: 'Falsterbo', lat: 55.3837, lon: 12.8166 },
-    { namn: 'Väderöarna', lat: 58.576, lon: 11.0661 },
-    { namn: 'Hoburg', lat: 56.9209, lon: 18.1506 },
-    { namn: 'Sundsvall', lat: 62.5246, lon: 17.441 },
-    { namn: 'Östersund', lat: 63.1981, lon: 14.4869 },
+    { namn: 'Falsterbo', lat: 55.3837, lon: 12.8166, station: 52240 },
+    { namn: 'Väderöarna', lat: 58.576, lon: 11.0661, station: 81350 },
+    { namn: 'Hoburg', lat: 56.9209, lon: 18.1506, station: 68560 },
+    { namn: 'Sundsvall', lat: 62.5246, lon: 17.441, station: 127310 },
+    { namn: 'Östersund', lat: 63.1981, lon: 14.4869, station: 134110 },
   ],
 };

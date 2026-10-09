@@ -2,20 +2,24 @@
 // Actions strax efter kl 13 när morgondagens priser publicerats.
 //
 // Regler (för att inte tjata):
-//   1. Känt pris: dyra perioder i morgon -> en notis med tider, pris och vad det kostar huset.
+//   1. Känt pris: dyra perioder i morgon som kostar huset minst varningKr extra
+//      -> en notis med tider, pris och vad det kostar huset.
 //   2. Förvarning: om dygnet 3 dagar fram uppskattas bli dyrt -> en notis (märkt uppskattning).
 //   Annars skickas ingenting.
 //
 // Miljövariabler: NTFY_TOPIC (hemligt ämnesnamn; utan det skrivs notisen bara ut),
-//                 NTFY_SERVER (valfri, standard https://ntfy.sh), APP_URL (länk i notisen).
+//                 NTFY_SERVER (valfri, standard https://ntfy.sh), APP_URL (länk i notisen),
+//                 SCHEMA (cron-uttrycket som startade körningen, sätts av varning.yml).
 // Kör lokalt:     node tools/notis.mjs [--datum 2026-01-14]   (låtsas att det är det datumet)
+//                 --schemalagd: bara den schemalagda körning som hör till aktuell
+//                 svensk tid (sommar/vinter) skickar, och den väntar in sena priser.
 
 import * as K from '../app/js/kalkyl.js';
 import { prisprognos } from '../app/js/prognos.js';
 import { priserDygn, timprisHistorik, vaderprognos, tempHistorik } from '../app/js/data.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const inst = { ...K.STANDARD };
@@ -32,14 +36,10 @@ function lasJson(fil) {
   try { return JSON.parse(readFileSync(join(ROT, 'app', 'data', fil), 'utf8')).dagar; } catch { return {}; }
 }
 
-/** Timpriser senaste 35 dygnen: förberäknad fil först, resten hämtas. */
+/** Timpriser senaste 35 dygnen: förberäknad fil först, bara det som saknas hämtas. */
 async function historikMedFil(idag) {
-  const fil = lasJson(`priser_${inst.elomrade}.json`);
   const fran = K.laggTillDagar(idag, -35), till = K.laggTillDagar(idag, -1);
-  const ut = {};
-  for (let d = fran; d <= till; d = K.laggTillDagar(d, 1)) if (fil[d]) ut[d] = fil[d];
-  const hamtat = await timprisHistorik(fran, till, inst.elomrade, idag, { basUrl: 'http://127.0.0.1:9/', maxHamtningar: 40 }).catch(() => ({}));
-  return { ...hamtat, ...ut };
+  return timprisHistorik(fran, till, inst.elomrade, idag, { forladdat: lasJson(`priser_${inst.elomrade}.json`), maxHamtningar: 40 });
 }
 
 export async function byggNotiser(idag, { kallor = {} } = {}) {
@@ -50,12 +50,10 @@ export async function byggNotiser(idag, { kallor = {} } = {}) {
   const tim = kallor.timpris ?? await historikMedFil(idag);
   tim[idag] = K.timpriser(pIdag);
   tim[imorgon] = K.timpriser(pImorgon);
-  const spot30 = [];
-  for (let d = 1; d <= 30; d++) spot30.push(...(tim[K.laggTillDagar(idag, -d)] ?? []).filter(Number.isFinite));
-  const ref = K.referens(spot30, inst);
+  const ref = K.referens(K.posterFranTimpriser(tim, K.laggTillDagar(idag, -30), K.laggTillDagar(idag, -1)), inst);
   const vader = kallor.vader ?? await vaderprognos(inst.plats).catch(() => ({ hem: {}, modell: {} }));
   const temp = kallor.temp ?? { ...lasJson('temp_jonkoping.json'), ...(await tempHistorik().catch(() => ({}))) };
-  const tempFor = (d) => (Number.isFinite(temp[d]) ? temp[d] : vader.hem[d]?.temp ?? 5);
+  const tempFor = (d) => K.valjTemp(d, temp, vader.hem);
 
   const notiser = [];
   // 1. Morgondagens dyra perioder
@@ -82,13 +80,14 @@ export async function byggNotiser(idag, { kallor = {} } = {}) {
   const prognos = prisprognos(modell, dygnspris, vader.modell, imorgon, idag);
   const mal = prognos.find((p) => K.dagarMellan(idag, p.datum) === FORVARNING_DYGN);
   if (mal?.dyr) {
-    const tot = (s) => (s + inst.paslagOre / 100) * K.MOMS + inst.energiskatt + inst.overforing.sakring;
+    const tot = (s) => K.dygnsTotal(s, mal.datum, inst);
+    const skal = mal.orsak.length ? ` Skäl: ${mal.orsak.join(', ')}.` : mal.hogtLage ? ' Priset ligger redan högt och väntas ligga kvar.' : '';
     const k = K.dygnskostnad(mal.datum, new Array(24).fill(mal.spot), tempFor(mal.datum), inst);
     const n = K.dygnskostnad(mal.datum, new Array(24).fill(ref.spotMedian), tempFor(mal.datum), inst);
     notiser.push({
       titel: `Förvarning: troligen dyr el ${K.dagnamn(mal.datum, idag)}`,
       text: `Uppskattning: dygnsmedel cirka ${K.krKwh(tot(mal.spot))} (spann ${K.tal(tot(mal.spotLag), 2)}–${K.tal(tot(mal.spotHog), 2)}), normalt ${K.krKwh(ref.totalMedian)}.` +
-        `${mal.orsak.length ? ` Skäl: ${mal.orsak.join(', ')}.` : ''} Kan kosta huset ungefär ${K.kr(Math.max(0, k.kr - n.kr))} extra. Tvätta och kör det som kan flyttas dagarna före. Exakta priser kommer kl 13 dagen innan.`,
+        `${skal} Kan kosta huset ungefär ${K.kr(Math.max(0, k.kr - n.kr))} extra. Tvätta och kör det som kan flyttas dagarna före. Exakta priser kommer kl 13 dagen innan.`,
       prioritet: 3,
       taggar: 'crystal_ball',
     });
@@ -108,19 +107,53 @@ async function skicka(n) {
   console.log(`Skickad: ${n.titel}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const i = process.argv.indexOf('--datum');
-  const idag = i > 0 ? process.argv[i + 1] : K.dagensDatum();
-  // GitHub Actions kör två gånger (för sommar- och vintertid); bara körningen
-  // mellan 13:15 och 14:35 svensk tid skickar, så att notisen kommer en gång.
-  const { timme, minut } = K.klockslagNu();
-  const min = timme * 60 + minut;
-  if (process.argv.includes('--schemalagd') && (min < 13 * 60 + 15 || min >= 14 * 60 + 35)) {
-    console.log(`Utanför tidsfönstret (${timme}:${String(minut).padStart(2, '0')} svensk tid) – skickar inget.`);
+/** 'GMT+2' på sommartid, 'GMT+1' på vintertid. */
+export function svenskOffset(nu = new Date()) {
+  return new Intl.DateTimeFormat('en', { timeZone: 'Europe/Stockholm', timeZoneName: 'shortOffset' })
+    .formatToParts(nu).find((p) => p.type === 'timeZoneName').value;
+}
+
+/** Ska den här schemalagda körningen skicka? Avgörs av vilken cron som startade den. */
+export function arRattKorning(schema, nu = new Date()) {
+  // 11:40 UTC = 13:40 sommartid, 12:40 UTC = 13:40 vintertid.
+  const ratt = svenskOffset(nu) === 'GMT+2' ? '40 11 * * *' : '40 12 * * *';
+  if (schema) return schema === ratt;
+  // Manuell körning med --schemalagd: skicka mellan 13 och 16 svensk tid.
+  const { timme } = K.klockslagNu(nu);
+  return timme >= 13 && timme < 16;
+}
+
+function lasDatum(argv) {
+  const i = argv.findIndex((a) => a === '--datum' || a.startsWith('--datum='));
+  if (i < 0) return K.dagensDatum();
+  const d = argv[i].includes('=') ? argv[i].split('=')[1] : argv[i + 1];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d ?? '')) {
+    console.error('Ange datum som --datum ÅÅÅÅ-MM-DD');
+    process.exit(64);
+  }
+  return d;
+}
+
+const vanta = (ms) => new Promise((r) => setTimeout(r, ms));
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const idag = lasDatum(process.argv);
+  const schemalagd = process.argv.includes('--schemalagd');
+  if (schemalagd && !arRattKorning(process.env.SCHEMA)) {
+    console.log(`Den här körningen (${process.env.SCHEMA ?? 'manuell'}) hör inte till aktuell svensk tid (${svenskOffset()}) – den andra körningen skickar.`);
     process.exit(0);
   }
-  const { notiser, orsak, ref } = await byggNotiser(idag);
-  if (orsak) { console.log(orsak); process.exitCode = 2; }
-  else if (!notiser.length) console.log(`Inga varningar (normalt ${K.krKwh(ref.totalMedian)}).`);
-  for (const n of notiser) await skicka(n);
+  // Schemalagt: vänta in sent publicerade priser i upp till en timme.
+  let res = await byggNotiser(idag);
+  for (let forsok = 1; schemalagd && res.orsak && forsok <= 12; forsok++) {
+    console.log(`${res.orsak} Försöker igen om 5 minuter (${forsok}/12).`);
+    await vanta(5 * 60e3);
+    res = await byggNotiser(idag);
+  }
+  if (res.orsak) {
+    console.log(res.orsak);
+    // Rött jobb bara när en schemalagd körning gett upp; en testkörning före kl 13 är inget fel.
+    if (schemalagd) { console.log('::error::Morgondagens priser saknades även efter en timme.'); process.exitCode = 1; }
+  } else if (!res.notiser.length) console.log(`Inga varningar (normalt ${K.krKwh(res.ref.totalMedian)}).`);
+  for (const n of res.notiser) await skicka(n);
 }

@@ -29,10 +29,14 @@ let matvarden = lasLokalt('matvarden', null);
 
 // ------------------------------------------------------------------ start ----
 
+let korning = 0;
+let senastUppdaterad = 0;
+
 async function start() {
+  const denna = ++korning;            // en senare körning (timer, Spara) vinner
   const idag = K.dagensDatum();
   const imorgon = K.laggTillDagar(idag, 1);
-  const nu = K.klockslagNu();
+  const nu = { ...K.klockslagNu(), ms: Date.now() };
   try {
     const [pIdag, pImorgon] = await Promise.all([
       D.priserDygn(idag, inst.elomrade, idag),
@@ -46,14 +50,14 @@ async function start() {
       D.tempHistorik(),
       fetch('modell/prismodell.json').then((r) => r.json()).catch(() => null),
     ]);
+    if (denna !== korning) return;
     tim[idag] = K.timpriser(pIdag);
     if (pImorgon) tim[imorgon] = K.timpriser(pImorgon);
 
-    const spot30 = [];
-    for (let d = 1; d <= 30; d++) spot30.push(...(tim[K.laggTillDagar(idag, -d)] ?? []).filter(Number.isFinite));
-    const ref = K.referens(spot30.length ? spot30 : pIdag.map((i) => i.spot), inst);
+    const poster30 = K.posterFranTimpriser(tim, K.laggTillDagar(idag, -30), K.laggTillDagar(idag, -1));
+    const ref = K.referens(poster30.length ? poster30 : pIdag.map((i) => ({ spot: i.spot, datum: i.datum, timme: i.timme })), inst);
 
-    const tempFor = (d) => (Number.isFinite(temp[d]) ? temp[d] : vader.hem[d]?.temp ?? normalTemp(temp, d));
+    const tempFor = (d) => K.valjTemp(d, temp, vader.hem);
     const kostnadDygn = (d) => (tim[d] ? K.dygnskostnad(d, tim[d], tempFor(d), inst, matvarden?.dagar?.[d] ?? null) : null);
 
     const kanda = [pIdag, pImorgon].filter(Boolean).flat();
@@ -66,36 +70,31 @@ async function start() {
     for (const [d, v] of Object.entries(tim)) { const m = K.medel(v); if (Number.isFinite(m)) dygnspris[d] = m; }
     const senast = pImorgon ? imorgon : idag;
     const prognos = modell ? prisprognos(modell, dygnspris, vader.modell, senast, idag) : [];
+    const prognosSaknas = !prognos.length;
 
     visaJustNu(berikade, ref, idag, nu);
-    visaVarningar(berikade, ref, kwhTim, prognos, idag, nu, pImorgon, tempFor, kostnadDygn);
-    visaDagar(berikade, ref, idag, nu, pImorgon, prognos, tempFor, kostnadDygn);
-    visaKostnad(tim, idag, tempFor, kostnadDygn, prognos, temp);
+    visaVarningar(berikade, ref, kwhTim, prognos, idag, nu, pImorgon, tempFor, prognosSaknas);
+    visaDagar(berikade, ref, idag, nu, pImorgon, prognos, tempFor, kostnadDygn, prognosSaknas);
+    visaKostnad(tim, idag, tempFor, kostnadDygn, prognos);
+    senastUppdaterad = Date.now();
   } catch (e) {
     console.error(e);
-    $('#just-nu').innerHTML = `<p class="fel">Kunde inte hämta priserna just nu (${esc(e.message)}). Försök igen om en stund.</p>`;
+    if (denna === korning) $('#just-nu').innerHTML = `<p class="fel">Kunde inte hämta priserna just nu (${esc(e.message)}). Försök igen om en stund.</p>`;
   }
 }
 
-function normalTemp(temp, datum) {
-  const v = [];
-  for (let ar = 1; ar <= 4; ar++) {
-    const d = `${Number(datum.slice(0, 4)) - ar}${datum.slice(4)}`;
-    if (Number.isFinite(temp[d])) v.push(temp[d]);
-  }
-  return v.length ? K.medel(v) : 7;
-}
+// Absolut tid (ms) i stället för klockslag: natten då sommartiden slutar finns
+// klockslagen 02:00–02:59 två gånger.
+const slutMs = (i) => i.t0 + i.langd * 60000;
 
 function aterstaende(berikade, idag, nu) {
-  const nuMin = nu.timme * 60 + nu.minut;
-  return berikade.filter((i) => i.datum > idag || i.timme * 60 + i.minut + i.langd > nuMin);
+  return berikade.filter((i) => slutMs(i) > nu.ms);
 }
 
 // ---------------------------------------------------------------- just nu ----
 
 function visaJustNu(berikade, ref, idag, nu) {
-  const nuMin = nu.timme * 60 + nu.minut;
-  const aktuellt = berikade.find((i) => i.datum === idag && i.timme * 60 + i.minut <= nuMin && i.timme * 60 + i.minut + i.langd > nuMin) ?? berikade[0];
+  const aktuellt = berikade.find((i) => i.t0 <= nu.ms && nu.ms < slutMs(i)) ?? berikade[0];
   const kommande = aterstaende(berikade, idag, nu);
   const nastaDyr = kommande.find((i) => i !== aktuellt && (i.niva === 'dyrt' || i.niva === 'mycket-dyrt'));
   const rorligt = aktuellt.total - aktuellt.spot * K.MOMS;
@@ -121,7 +120,7 @@ function visaJustNu(berikade, ref, idag, nu) {
 
 // -------------------------------------------------------------- varningar ----
 
-function visaVarningar(berikade, ref, kwhTim, prognos, idag, nu, pImorgon, tempFor, kostnadDygn) {
+function visaVarningar(berikade, ref, kwhTim, prognos, idag, nu, pImorgon, tempFor, prognosSaknas) {
   const kort = [];
   const vanliga = [];
   const dygn = K.dygnsvarningar(K.dyraPerioder(aterstaende(berikade, idag, nu)), kwhTim, ref, inst);
@@ -137,8 +136,9 @@ function visaVarningar(berikade, ref, kwhTim, prognos, idag, nu, pImorgon, tempF
   for (const grupp of grupperaDagar(dyra)) {
     const forsta = grupp[0], sista = grupp.at(-1);
     const dagar = grupp.length > 1 ? `${K.dagnamn(forsta.datum, idag)}–${K.dagnamn(sista.datum, idag)}` : K.dagnamn(forsta.datum, idag);
-    const tot = (s) => (s + inst.paslagOre / 100) * K.MOMS + inst.energiskatt + inst.overforing.sakring;
+    const tot = (s) => K.dygnsTotal(s, forsta.datum, inst);
     const orsaker = [...new Set(grupp.flatMap((g) => g.orsak))];
+    const skal = orsaker.length ? `Skäl: ${orsaker.join(', ')}.` : grupp.some((g) => g.hogtLage) ? 'Priset ligger redan högt och väntas ligga kvar.' : '';
     const extra = grupp.reduce((a, g) => {
       const k = K.dygnskostnad(g.datum, new Array(24).fill(g.spot), tempFor(g.datum), inst);
       const n = K.dygnskostnad(g.datum, new Array(24).fill(ref.spotMedian), tempFor(g.datum), inst);
@@ -146,11 +146,14 @@ function visaVarningar(berikade, ref, kwhTim, prognos, idag, nu, pImorgon, tempF
     }, 0);
     kort.push(`<article class="varning dyrt"><h3>Troligen dyrt ${esc(dagar)}<span class="chip uppskattning">Uppskattning</span></h3>
       <p>Väntat dygnsmedel cirka ${K.krKwh(tot(forsta.spot))} (troligt spann ${K.tal(tot(forsta.spotLag), 2)}–${K.tal(tot(forsta.spotHog), 2)}), normalt ${K.krKwh(ref.totalMedian)}.
-      ${orsaker.length ? `Skäl: ${esc(orsaker.join(', '))}.` : ''} Det skulle kosta ditt hus ungefär ${K.kr(Math.max(0, extra))} extra. Planera tvätt och annat som kan flyttas till dagarna före.</p></article>`);
+      ${esc(skal)} Det skulle kosta ditt hus ungefär ${K.kr(Math.max(0, extra))} extra. Planera tvätt och annat som kan flyttas till dagarna före.</p></article>`);
   }
   if (!kort.length) {
     const toppar = vanliga.map((d) => `${K.dagnamn(d.datum, idag)} ${d.perioder.map((p) => `${p.franTxt}–${p.tillTxt}`).join(' och ')} (upp till ${K.krKwh(Math.max(...d.perioder.map((p) => p.max)))}, kostar huset ca ${K.kr(d.extra)} extra)`);
-    kort.push(`<article class="varning lugnt"><h3>Inga varningar</h3><p>Inget ${pImorgon ? 'i dag eller i morgon' : 'resten av dagen'} kostar huset mer än ${K.kr(inst.varningKr)} extra, och inget tyder på dyra dagar de närmaste ${MAX_DYGN_FRAM} dygnen.${toppar.length ? ` Vanliga toppar: ${esc(toppar.join('; '))}.` : ''}</p></article>`);
+    const framat = prognosSaknas
+      ? ' Uppskattningen för de kommande dagarna saknas just nu (väderprognosen kunde inte hämtas).'
+      : ` Inget tyder heller på dyra dagar de närmaste ${MAX_DYGN_FRAM} dygnen.`;
+    kort.push(`<article class="varning lugnt"><h3>Inga varningar</h3><p>Inget ${pImorgon ? 'i dag eller i morgon' : 'resten av dagen'} kostar huset mer än ${K.kr(inst.varningKr)} extra.${framat}${toppar.length ? ` Vanliga toppar: ${esc(toppar.join('; '))}.` : ''}</p></article>`);
   }
   $('#varningar').innerHTML = kort.join('');
 }
@@ -166,8 +169,10 @@ function grupperaDagar(lista) {
 
 // ---------------------------------------------------------- kommande dagar ----
 
-function visaDagar(berikade, ref, idag, nu, pImorgon, prognos, tempFor, kostnadDygn) {
+function visaDagar(berikade, ref, idag, nu, pImorgon, prognos, tempFor, kostnadDygn, prognosSaknas) {
   const rader = [];
+  // Behåll uppfällda dagar när vyn ritas om.
+  const oppna = new Set([...document.querySelectorAll('#dagar details[open]')].map((e) => e.dataset.datum));
   for (const d of [idag, pImorgon ? K.laggTillDagar(idag, 1) : null].filter(Boolean)) {
     const dagens = berikade.filter((i) => i.datum === d);
     const k = kostnadDygn(d);
@@ -180,7 +185,7 @@ function visaDagar(berikade, ref, idag, nu, pImorgon, prognos, tempFor, kostnadD
     const perioder = K.dyraPerioder(dagens);
     const billigast = K.billigasteFonster(dagens, 3);
     const t = tempFor(d);
-    rader.push(`<details class="dag">
+    rader.push(`<details class="dag" data-datum="${d}"${oppna.has(d) ? ' open' : ''}>
       <summary>
         <span class="dag-namn">${esc(stor(K.dagnamn(d, idag)))} <span class="dag-info">${d.slice(8, 10)}/${Number(d.slice(5, 7))}</span></span>
         <span class="dag-kr">${K.kr(k.kr)}</span>
@@ -196,8 +201,8 @@ function visaDagar(berikade, ref, idag, nu, pImorgon, prognos, tempFor, kostnadD
       </div>
     </details>`);
   }
-  const tot = (s) => (s + inst.paslagOre / 100) * K.MOMS + inst.energiskatt + inst.overforing.sakring;
   for (const p of prognos) {
+    const tot = (s) => K.dygnsTotal(s, p.datum, inst);
     if (pImorgon && p.datum === K.laggTillDagar(idag, 1)) continue;
     const k = K.dygnskostnad(p.datum, new Array(24).fill(p.spot), tempFor(p.datum), inst);
     const nivaP = p.dyr ? 'dyrt' : p.spot <= 0.7 * p.median30 ? 'billigt' : 'normalt';
@@ -211,7 +216,8 @@ function visaDagar(berikade, ref, idag, nu, pImorgon, prognos, tempFor, kostnadD
   $('#dagar').hidden = false;
   $('#dagar').innerHTML = `<h2>Kommande dagar</h2>
     <p class="undertext">Kronor = vad ditt hus beräknas kosta det dygnet, allt inräknat. Tryck på en dag för detaljer. Dagar med ≈ är uppskattningar.</p>
-    ${rader.join('')}`;
+    ${rader.join('')}
+    ${prognosSaknas ? '<p class="undertext">Uppskattning för dagarna därefter saknas just nu – SMHI:s väderprognos kunde inte hämtas.</p>' : ''}`;
 }
 
 function dagsniva(timNiva) {
@@ -223,22 +229,25 @@ function dagsniva(timNiva) {
 
 // ------------------------------------------------------------ elkostnad ----
 
-function visaKostnad(tim, idag, tempFor, kostnadDygn, prognos, temp) {
+function visaKostnad(tim, idag, tempFor, kostnadDygn, prognos) {
   const manad = idag.slice(0, 7);
   const forsta = `${manad}-01`;
   const dagarIManad = new Date(Date.UTC(+manad.slice(0, 4), +manad.slice(5, 7), 0)).getUTCDate();
   let hittills = 0, hittillsKwh = 0, uppmatta = 0, dagar = 0;
   const delar = { elpris: 0, natavgift: 0, energiskatt: 0 };
+  const spotNormal = K.median(Object.entries(tim).filter(([d]) => d < idag && d >= K.laggTillDagar(idag, -30)).flatMap(([, v]) => v).filter(Number.isFinite));
+  let resten = 0;
   for (let d = forsta; d < idag; d = K.laggTillDagar(d, 1)) {
     const k = kostnadDygn(d);
-    if (!k) continue;
+    if (!k) {   // priserna för dygnet gick inte att hämta: uppskatta med normalpris
+      resten += K.dygnskostnad(d, new Array(24).fill(spotNormal), tempFor(d), inst).kr;
+      continue;
+    }
     hittills += k.kr; hittillsKwh += k.kwh; dagar++;
     if (k.kalla === 'uppmätt') uppmatta++;
     for (const n of Object.keys(delar)) delar[n] += k.delar[n];
   }
-  // Prognos för hela månaden: kända dagar + uppskattning + normalpris resten
-  const spotNormal = K.median(Object.entries(tim).filter(([d]) => d < idag && d >= K.laggTillDagar(idag, -30)).flatMap(([, v]) => v).filter(Number.isFinite));
-  let resten = 0;
+  // Uppskattning för resten av månaden: kända priser, prisprognos, annars normalpris
   for (let d = idag; d.slice(0, 7) === manad; d = K.laggTillDagar(d, 1)) {
     const p = prognos.find((x) => x.datum === d);
     const spot = tim[d] ?? new Array(24).fill(p ? p.spot : spotNormal);
@@ -271,7 +280,7 @@ function visaKostnad(tim, idag, tempFor, kostnadDygn, prognos, temp) {
     <h2>Din elkostnad</h2>
     <div class="siffror">
       <div class="siffra"><div class="e">${MANADER[+manad.slice(5, 7) - 1]} hittills (${dagar} dygn)</div><div class="v">${K.kr(hittills)}</div><div class="e">${K.tal(hittillsKwh)} kWh · ${hittillsKwh ? K.krKwh(hittills / hittillsKwh) : ''}</div></div>
-      <div class="siffra"><div class="e">Hela ${MANADER[+manad.slice(5, 7) - 1]}, uppskattning</div><div class="v">≈ ${K.kr(hittills + resten)}</div><div class="e">${dagarIManad - dagar} dygn kvar</div></div>
+      <div class="siffra"><div class="e">Hela ${MANADER[+manad.slice(5, 7) - 1]}, uppskattning</div><div class="v">≈ ${K.kr(hittills + resten)}</div><div class="e">${dagarIManad - Number(idag.slice(8, 10)) + 1} dygn kvar inkl. i dag</div></div>
       ${fjolDagar ? `<div class="siffra"><div class="e">${MANADER[+manad.slice(5, 7) - 1]} i fjol</div><div class="v">${K.kr(fjol)}</div><div class="e">${K.tal(fjolKwh)} kWh · ${K.krKwh(fjol / fjolKwh)}</div></div>` : ''}
     </div>
     <div class="fordelning" role="img" aria-label="Fördelning av kostnaden"><span style="width:${pct(delar.elpris)}"></span><span style="width:${pct(delar.natavgift)}"></span><span style="width:${pct(delar.energiskatt)}"></span></div>
@@ -287,22 +296,23 @@ function visaKostnad(tim, idag, tempFor, kostnadDygn, prognos, temp) {
 
 // ---------------------------------------------------------- inställningar ----
 
-function fyllFormular() {
+/** Fyller formuläret med inställningarna `v` (standard: de som gäller nu). */
+function fyllFormular(v = inst) {
   const f = $('#installningsform');
-  f.arsforbrukning.value = inst.arsforbrukning;
-  f.bilKwhAr.value = inst.bilKwhAr;
-  f.hushallKwhAr.value = inst.hushallKwhAr;
-  f.varmvattenKwhDag.value = inst.varmvattenKwhDag;
-  f.natTariff.value = inst.natTariff;
-  f.natFastSakring.value = inst.natFastKrManad.sakring;
-  f.natFastTid.value = inst.natFastKrManad.tid;
-  f.overforingSakring.value = +(inst.overforing.sakring * 100).toFixed(2);
-  f.overforingTidHog.value = +(inst.overforing.tidHog * 100).toFixed(2);
-  f.overforingTidLag.value = +(inst.overforing.tidLag * 100).toFixed(2);
-  f.paslagOre.value = inst.paslagOre;
-  f.handelKrManad.value = inst.handelKrManad;
-  f.varningKr.value = inst.varningKr;
-  $('#varme-text').textContent = `Resten, ${K.tal(K.varmeKwhAr(inst))} kWh/år, räknas som uppvärmning och följer utetemperaturen.`;
+  f.arsforbrukning.value = v.arsforbrukning;
+  f.bilKwhAr.value = v.bilKwhAr;
+  f.hushallKwhAr.value = v.hushallKwhAr;
+  f.varmvattenKwhDag.value = v.varmvattenKwhDag;
+  f.natTariff.value = v.natTariff;
+  f.natFastSakring.value = v.natFastKrManad.sakring;
+  f.natFastTid.value = v.natFastKrManad.tid;
+  f.overforingSakring.value = +(v.overforing.sakring * 100).toFixed(2);
+  f.overforingTidHog.value = +(v.overforing.tidHog * 100).toFixed(2);
+  f.overforingTidLag.value = +(v.overforing.tidLag * 100).toFixed(2);
+  f.paslagOre.value = v.paslagOre;
+  f.handelKrManad.value = v.handelKrManad;
+  f.varningKr.value = v.varningKr;
+  $('#varme-text').textContent = `Resten, ${K.tal(K.varmeKwhAr(v))} kWh/år, räknas som uppvärmning och följer utetemperaturen.`;
   visaMatstatus();
 }
 
@@ -323,19 +333,22 @@ function lasFormular() {
   };
 }
 
-$('#oppna-installningar').addEventListener('click', () => { fyllFormular(); $('#installningar').showModal(); });
-$('#installningar').addEventListener('close', () => {
-  if ($('#installningar').returnValue !== 'spara') return;
-  const ny = lasFormular();
-  sparaLokalt('installningar', ny);
-  inst = laddaInstallningar();
-  start();
-});
-$('#aterstall').addEventListener('click', () => {
-  try { localStorage.removeItem('installningar'); } catch { /* ignorera */ }
-  inst = laddaInstallningar();
+let matvardenAndrade = false;
+$('#oppna-installningar').addEventListener('click', () => {
   fyllFormular();
+  matvardenAndrade = false;
+  $('#installningar').returnValue = '';
+  $('#installningar').showModal();
 });
+$('#installningar').addEventListener('close', () => {
+  if ($('#installningar').returnValue === 'spara') {
+    sparaLokalt('installningar', lasFormular());
+    inst = laddaInstallningar();
+    start();
+  } else if (matvardenAndrade) start();
+});
+// Återställ fyller bara formuläret med standardvärdena; inget sparas förrän Spara.
+$('#aterstall').addEventListener('click', () => fyllFormular(K.STANDARD));
 $('#matfil').addEventListener('change', async (e) => {
   const fil = e.target.files?.[0];
   if (!fil) return;
@@ -345,14 +358,25 @@ $('#matfil').addEventListener('change', async (e) => {
     return;
   }
   matvarden = res;
-  if (!sparaLokalt('matvarden', res)) $('#matstatus').innerHTML = '<span class="fel">Kunde inte spara mätvärdena i webbläsaren.</span>';
+  matvardenAndrade = true;
+  if (!sparaLokalt('matvarden', res)) $('#matstatus').innerHTML = '<span class="fel">Mätvärdena används nu men kunde inte sparas i webbläsaren (fullt eller blockerat).</span>';
   else visaMatstatus();
 });
 $('#rensa-matvarden').addEventListener('click', () => {
   try { localStorage.removeItem('matvarden'); } catch { /* ignorera */ }
   matvarden = null;
+  matvardenAndrade = true;
   visaMatstatus();
 });
 
+// Uppdatera vid varje kvartsskifte (priset byts då) och när appen visas igen.
+let timer = null;
+function schemalagg() {
+  clearTimeout(timer);
+  timer = setTimeout(() => { if (document.visibilityState === 'visible') start(); schemalagg(); }, 900e3 - (Date.now() % 900e3) + 3000);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && Date.now() - senastUppdaterad > 60e3) { start(); schemalagg(); }
+});
 start();
-setInterval(() => { if (document.visibilityState === 'visible') start(); }, 15 * 60e3);
+schemalagg();

@@ -52,9 +52,7 @@ for (let idag = fran; K.laggTillDagar(idag, 1) <= sista; idag = K.laggTillDagar(
   const m = imorgon.slice(0, 7);
   const rad = (perManad[m] ??= { dagar: 0, dyraPeriodDagar: 0, varningsdagar: 0, mycket: 0, perioder: 0, timmar: 0, extra: 0, besparing: 0, forv: 0, forvRatt: 0, dyraDagar: 0, dyraForvarnade: 0 });
   rad.dagar++;
-  const spot30 = [];
-  for (let d = 0; d < 30; d++) spot30.push(...(tim[K.laggTillDagar(idag, -d)] ?? []).filter(Number.isFinite));
-  const ref = K.referens(spot30, inst);
+  const ref = K.referens(K.posterFranTimpriser(tim, K.laggTillDagar(idag, -29), idag), inst);
   const iv = intervallPerDag[imorgon];
   const kostnad = K.dygnskostnad(imorgon, tim[imorgon], tempJkpg[imorgon], inst);
   const modellDygn = K.forbrukningDygn(imorgon, tempJkpg[imorgon], inst, tim[imorgon]);

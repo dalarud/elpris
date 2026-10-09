@@ -87,10 +87,14 @@ export function klockslagNu(nu = new Date()) {
 
 /** Omvandlar elprisetjustnu.se-format till intervall. */
 export function tolkaPriser(rader) {
-  return rader.map((r) => {
+  return rader.map((r, i) => {
     const t = lokalTid(r.time_start);
-    const langd = Math.round((new Date(r.time_end) - new Date(r.time_start)) / 60000);
-    return { start: r.time_start, slut: r.time_end, ...t, langd, spot: r.SEK_per_kWh };
+    // Slutet tas från nästa intervalls start när det finns: API:t anger t.ex.
+    // 02:45+02:00 -> 03:00+01:00 (75 min) natten då sommartiden slutar.
+    const slut = rader[i + 1]?.time_start ?? r.time_end;
+    const t0 = Date.parse(r.time_start);
+    const langd = Math.round((Date.parse(slut) - t0) / 60000);
+    return { start: r.time_start, slut, t0, ...t, langd, spot: r.SEK_per_kWh };
   });
 }
 
@@ -113,8 +117,24 @@ export function totalpris(spot, datum, timme, inst) {
 }
 
 /** Fasta avgifter per dygn (nät + elhandel), kr inkl. moms. */
+export function fastNatPerDygn(inst) {
+  return (inst.natFastKrManad[inst.natTariff] ?? inst.natFastKrManad.sakring) * 12 / 365;
+}
+
+export function fastHandelPerDygn(inst) {
+  return inst.handelKrManad * 12 / 365;
+}
+
+/** Fasta avgifter per dygn (nät + elhandel), kr inkl. moms. */
 export function fastPerDygn(inst) {
-  return ((inst.natFastKrManad[inst.natTariff] ?? inst.natFastKrManad.sakring) + inst.handelKrManad) * 12 / 365;
+  return fastNatPerDygn(inst) + fastHandelPerDygn(inst);
+}
+
+/** Genomsnittligt totalpris över dygnets timmar för ett (uppskattat) jämnt spotpris. */
+export function dygnsTotal(spot, datum, inst) {
+  let s = 0;
+  for (let h = 0; h < 24; h++) s += totalpris(spot, datum, h, inst);
+  return s / 24;
 }
 
 export function median(v) {
@@ -130,6 +150,26 @@ export function medel(v) {
 }
 
 // ----------------------------------------------------- förbrukningsmodell ----
+
+/** Normaltemperatur för ett datum: medel av samma datum de fyra föregående åren. */
+export function normalTemp(temp, datum) {
+  const v = [];
+  for (let ar = 1; ar <= 4; ar++) {
+    const d = `${Number(datum.slice(0, 4)) - ar}${datum.slice(4)}`;
+    if (Number.isFinite(temp[d])) v.push(temp[d]);
+  }
+  return v.length ? medel(v) : 7;
+}
+
+/**
+ * Dygnsmedeltemperatur för hushållets värmebehov: uppmätt i första hand, annars
+ * SMHI (uppmätta timmar + prognos) om dygnet täcks nästan helt, annars normalt.
+ */
+export function valjTemp(datum, uppmatt, hemVader) {
+  if (Number.isFinite(uppmatt[datum])) return uppmatt[datum];
+  const h = hemVader?.[datum];
+  return h && Number.isFinite(h.temp) && (h.timmarTemp ?? 24) >= 18 ? h.temp : normalTemp(uppmatt, datum);
+}
 
 export function varmeKwhAr(inst) {
   return Math.max(0, inst.arsforbrukning - inst.hushallKwhAr - inst.bilKwhAr - inst.varmvattenKwhDag * 365);
@@ -153,7 +193,9 @@ export function forbrukningDygn(datum, tempMedel, inst, spotTim = null) {
   }
   // Laddboxen styr mot pris: billigaste timmarna kl 22–07 (natten före + kvällen).
   const fonster = [22, 23, 0, 1, 2, 3, 4, 5, 6];
-  const ordning = spotTim ? [...fonster].sort((a, b) => spotTim[a] - spotTim[b]) : [1, 2, 3, 4, 0, 5, 23, 22, 6];
+  const ordning = spotTim
+    ? fonster.filter((h) => Number.isFinite(spotTim[h])).sort((a, b) => spotTim[a] - spotTim[b])
+    : [1, 2, 3, 4, 0, 5, 23, 22, 6];
   let kvar = bilDag;
   for (const h of ordning) {
     if (kvar <= 0) break;
@@ -178,33 +220,54 @@ export function timpriser(intervall) {
  */
 export function dygnskostnad(datum, spotTim, tempMedel, inst, matt = null) {
   const modell = forbrukningDygn(datum, tempMedel, inst, spotTim);
-  const kwhTim = matt ?? modell.total;
+  // En timme utan pris i ett annars komplett dygn är timmen som inte finns när
+  // sommartiden börjar; den får ingen beräknad förbrukning.
+  const harPris = spotTim.map(Number.isFinite);
+  const saknas = harPris.filter((x) => !x).length;
+  const kwhTim = matt ?? modell.total.map((e, h) => (harPris[h] || saknas > 2 ? e : 0));
   let spot = 0, handel = 0, skatt = 0, natRorlig = 0;
   for (let h = 0; h < 24; h++) {
     const e = kwhTim[h] ?? 0;
-    const p = Number.isFinite(spotTim[h]) ? spotTim[h] : medel(spotTim);
+    const p = harPris[h] ? spotTim[h] : medel(spotTim);
     spot += e * p * MOMS;
     handel += e * inst.paslagOre / 100 * MOMS;
     skatt += e * inst.energiskatt;
     natRorlig += e * overforingsavgift(datum, h, inst);
   }
-  const fast = fastPerDygn(inst);
+  const fastNat = fastNatPerDygn(inst), fastHandel = fastHandelPerDygn(inst);
   const kwh = kwhTim.reduce((a, b) => a + (b ?? 0), 0);
   return {
     datum, kwh, kalla: matt ? 'uppmätt' : 'beräknad',
-    kr: spot + handel + skatt + natRorlig + fast,
-    delar: { elpris: spot + handel, energiskatt: skatt, natavgift: natRorlig + fast },
+    kr: spot + handel + skatt + natRorlig + fastNat + fastHandel,
+    delar: { elpris: spot + handel + fastHandel, energiskatt: skatt, natavgift: natRorlig + fastNat },
     kwhTim,
   };
 }
 
 // -------------------------------------------------------- nivåer, perioder ----
 
-export function referens(spotHistorik30, inst) {
-  // "Normalt" = median av spotpriset senaste 30 dygnen, omräknat till totalpris
-  // med lågpristidens nätavgift så att nivån inte beror på tariffen.
-  const m = median(spotHistorik30);
-  return { spotMedian: m, totalMedian: (m + inst.paslagOre / 100) * MOMS + inst.energiskatt + inst.overforing.sakring };
+/**
+ * "Normalt" = medianen av vad en kWh kostat timme för timme de senaste 30
+ * dygnen, med den nätavgift som gällde varje timme (spelar roll vid tidstariff).
+ * poster: [{ spot, datum, timme }] – se posterFranTimpriser. En ren lista med
+ * spotpriser accepteras också (räknas då med säkringstariffens avgift).
+ */
+export function referens(poster, inst) {
+  const lista = poster.filter((p) => (typeof p === 'number' ? Number.isFinite(p) : Number.isFinite(p?.spot)));
+  const spot = lista.map((p) => (typeof p === 'number' ? p : p.spot));
+  const total = lista.map((p) => (typeof p === 'number' || !p.datum
+    ? ((typeof p === 'number' ? p : p.spot) + inst.paslagOre / 100) * MOMS + inst.energiskatt + inst.overforing.sakring
+    : totalpris(p.spot, p.datum, p.timme, inst)));
+  return { spotMedian: median(spot), totalMedian: median(total) };
+}
+
+/** Timposter för referens(): dygnen från och med `fran` till och med `till`. */
+export function posterFranTimpriser(tim, fran, till) {
+  const ut = [];
+  for (let d = fran; d <= till; d = laggTillDagar(d, 1)) {
+    (tim[d] ?? []).forEach((spot, timme) => { if (Number.isFinite(spot)) ut.push({ spot, datum: d, timme }); });
+  }
+  return ut;
 }
 
 export function niva(total, ref, inst) {
@@ -228,6 +291,7 @@ export function berika(intervall, ref, inst) {
 
 function hhmm(i, slut = false) {
   const t = slut ? lokalTid(i.slut) : i;
+  if (slut && t.timme === 0 && t.minut === 0 && t.datum !== i.datum) return '24:00';
   return `${String(t.timme).padStart(2, '0')}:${String(t.minut).padStart(2, '0')}`;
 }
 

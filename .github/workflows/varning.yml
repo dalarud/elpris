@@ -1,7 +1,8 @@
 # Skickar en notis till mobilen (via ntfy) när morgondagen blir dyr för huset,
-# eller när ett dyrt dygn väntas om tre dagar. Körs två gånger per dag så att en
-# körning hamnar strax efter kl 13 svensk tid både sommar- och vintertid; skriptet
-# skickar bara från den körning som ligger i rätt tidsfönster.
+# eller när ett dyrt dygn väntas om tre dagar. Två schemalagda körningar, 11:40 och
+# 12:40 UTC, motsvarar 13:40 svensk tid på sommar- respektive vintertid. Skriptet
+# avgör utifrån vilken cron som startade körningen om den ska skicka (aldrig båda),
+# och väntar in morgondagens priser i upp till en timme om de publiceras sent.
 #
 # Inställning: lägg ämnesnamnet som hemlighet NTFY_TOPIC (Settings → Secrets and
 # variables → Actions). Utan den skrivs notisen bara ut i loggen.
@@ -30,7 +31,9 @@ jobs:
         with:
           node-version: 22
       - name: Kontrollera morgondagen och skicka varning
+        timeout-minutes: 75
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           APP_URL: https://dalarud.github.io/elpris/
+          SCHEMA: ${{ github.event.schedule }}
         run: node tools/notis.mjs ${{ (github.event_name == 'schedule' || !inputs.tvinga) && '--schemalagd' || '' }}

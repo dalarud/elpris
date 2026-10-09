@@ -41,3 +41,19 @@ jobs:
           path: app
       - id: deploy
         uses: actions/deploy-pages@v4
+
+  hall-igang:
+    # GitHub stänger av schemalagda arbetsflöden i publika repon efter 60 dagar
+    # utan aktivitet. Att aktivera dem på nytt varje natt (samma metod som
+    # keepalive-workflow i API-läge) håller notiserna och datauppdateringen igång.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Håll de schemalagda arbetsflödena aktiva
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/varning.yml/enable"
+          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/sida.yml/enable"

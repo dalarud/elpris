@@ -4,15 +4,18 @@
 //   Uppmätt temp: SMHI Öppna data, metobs, station Jönköping-Axamo (74460)
 
 import { tolkaPriser, laggTillDagar, medel } from './kalkyl.js';
-import { smhiDygn, kombineraVader, PROGNOSORTER } from './prognos.js';
+import { smhiTimmar, obsTimmar, slaIhopTimmar, dygnFranTimmar, kombineraVader, PROGNOSORTER } from './prognos.js';
 
 const PRIS_URL = (datum, zon) => `https://www.elprisetjustnu.se/api/v1/prices/${datum.slice(0, 4)}/${datum.slice(5, 7)}-${datum.slice(8, 10)}_${zon}.json`;
 const SMHI_PROGNOS = (lat, lon) => `https://opendata-download-metfcst.smhi.se/api/category/snow1g/version/1/geotype/point/lon/${lon.toFixed(4)}/lat/${lat.toFixed(4)}/data.json`;
 const SMHI_OBS = (station) => `https://opendata-download-metobs.smhi.se/api/version/1.0/parameter/2/station/${station}/period/latest-months/data.json`;
+// Timvärden senaste dygnet: parameter 1 = lufttemperatur, 4 = vindhastighet.
+const SMHI_OBS_TIM = (param, station) => `https://opendata-download-metobs.smhi.se/api/version/1.0/parameter/${param}/station/${station}/period/latest-day/data.json`;
 
 // Enkel nyckel-värde-cache: localStorage i webbläsaren, minne i Node.
 const minne = new Map();
-const lagring = typeof localStorage !== 'undefined' ? localStorage : null;
+// Redan åtkomsten kan kasta (SecurityError) när webbläsaren blockerar webbplatsdata.
+const lagring = (() => { try { return typeof localStorage !== 'undefined' ? localStorage : null; } catch { return null; } })();
 function lasCache(nyckel) {
   try { const v = lagring ? lagring.getItem(nyckel) : minne.get(nyckel); return v ? JSON.parse(v) : null; } catch { return null; }
 }
@@ -38,15 +41,19 @@ export async function priserDygn(datum, zon, idag) {
 }
 
 /**
- * Timpriser för många dygn: { datum: [24 spot] }. Använder först den förberäknade
- * filen data/priser.json (om den finns) och hämtar resten direkt.
+ * Timpriser för många dygn: { datum: [24 spot] }. Använder först redan kända dygn
+ * (`forladdat`, t.ex. lästa från fil i Node) eller den förberäknade filen
+ * data/priser_<zon>.json, och hämtar resten direkt.
  */
-export async function timprisHistorik(fran, till, zon, idag, { basUrl = '', maxHamtningar = 70 } = {}) {
+export async function timprisHistorik(fran, till, zon, idag, { basUrl = '', maxHamtningar = 70, forladdat = null } = {}) {
   const ut = {};
-  try {
-    const r = await fetch(`${basUrl}data/priser_${zon}.json`);
-    if (r.ok) Object.assign(ut, (await r.json()).dagar);
-  } catch { /* finns inte (t.ex. lokalt): hämta direkt */ }
+  if (forladdat) Object.assign(ut, forladdat);
+  else {
+    try {
+      const r = await fetch(`${basUrl}data/priser_${zon}.json`);
+      if (r.ok) Object.assign(ut, (await r.json()).dagar);
+    } catch { /* finns inte (t.ex. lokalt): hämta direkt */ }
+  }
   const saknas = [];
   for (let d = fran; d <= till; d = laggTillDagar(d, 1)) {
     if (ut[d]) continue;
@@ -77,20 +84,42 @@ async function parallellt(lista, n, f) {
   return ut;
 }
 
-/** Väderprognos för hemorten och för prismodellens orter. */
-export async function vaderprognos(plats) {
-  const hamta = async (o) => {
+/**
+ * Väder per dygn för hemorten och för prismodellens orter. Prognosen (SMHI snow1g)
+ * börjar vid nästa hela timme, så dagens passerade timmar fylls i med SMHI:s
+ * uppmätta timvärden. Dygn som inte täcks nästan helt tas inte med i modellens
+ * väder (se kombineraVader).
+ * Returnerar { hem: { datum: { temp, timmarTemp, ... } }, modell: { datum: { temp, vind } } }.
+ */
+export async function vaderprognos(plats, { hemStation = 74460 } = {}) {
+  const prognos = async (o) => {
     const nyckel = `smhi:${o.lat.toFixed(2)}:${o.lon.toFixed(2)}`;
     const c = lasCache(nyckel);
-    if (c && Date.now() - c.t < 3 * 3600e3) return c.v;
-    const v = smhiDygn(await hamtaJson(SMHI_PROGNOS(o.lat, o.lon)));
-    skrivCache(nyckel, { t: Date.now(), v });
-    return v;
+    if (c && Date.now() - c.t < 3 * 3600e3 && c.timmar) return c.timmar;
+    const timmar = smhiTimmar(await hamtaJson(SMHI_PROGNOS(o.lat, o.lon)));
+    skrivCache(nyckel, { t: Date.now(), timmar });
+    return timmar;
   };
-  const [hem, ...ovriga] = await Promise.all([plats, ...PROGNOSORTER.temp, ...PROGNOSORTER.vind].map((o) => hamta(o).catch(() => ({}))));
-  const temp = ovriga.slice(0, PROGNOSORTER.temp.length);
-  const vind = ovriga.slice(PROGNOSORTER.temp.length);
-  return { hem, modell: kombineraVader(temp, vind) };
+  const obs = async (param, station, falt) => {
+    const nyckel = `smhiobs:${param}:${station}`;
+    const c = lasCache(nyckel);
+    if (c && Date.now() - c.t < 3600e3) return c.timmar;
+    const timmar = obsTimmar(await hamtaJson(SMHI_OBS_TIM(param, station)), falt);
+    skrivCache(nyckel, { t: Date.now(), timmar });
+    return timmar;
+  };
+  const tyst = (p) => p.catch(() => ({}));
+  const [hemP, hemO, tempP, tempO, vindP, vindO] = await Promise.all([
+    tyst(prognos(plats)),
+    tyst(obs(1, hemStation, 'temp')),
+    Promise.all(PROGNOSORTER.temp.map((o) => tyst(prognos(o)))),
+    Promise.all(PROGNOSORTER.temp.map((o) => tyst(obs(1, o.station, 'temp')))),
+    Promise.all(PROGNOSORTER.vind.map((o) => tyst(prognos(o)))),
+    Promise.all(PROGNOSORTER.vind.map((o) => tyst(obs(4, o.station, 'vind')))),
+  ]);
+  const temp = tempP.map((p, i) => dygnFranTimmar(slaIhopTimmar(p, tempO[i])));
+  const vind = vindP.map((p, i) => dygnFranTimmar(slaIhopTimmar(p, vindO[i])));
+  return { hem: dygnFranTimmar(slaIhopTimmar(hemP, hemO)), modell: kombineraVader(temp, vind) };
 }
 
 /** Uppmätt dygnsmedeltemperatur (senaste ~4 månaderna) + förberäknad historik. */

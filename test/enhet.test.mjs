@@ -103,3 +103,90 @@ test('import: ofullständiga dygn och skräprader ignoreras', () => {
   const r = tolkaMatvarden('hej\n2026-09-03 00:00;1\n2026-09-03 01:00;1\n');
   assert.equal(r.statistik.antalDygn, 0);
 });
+
+// ---------------------------------------------------------------------------
+// Tester för rättningarna efter granskningen inför sammanslagning.
+import { smhiTimmar, dygnFranTimmar, kombineraVader, slaIhopTimmar } from '../app/js/prognos.js';
+import { arRattKorning, svenskOffset } from '../tools/notis.mjs';
+
+test('tolkaPriser: intervallets slut tas från nästa start (API:ts 75-minutersintervall vid vintertid)', () => {
+  const rader = [
+    { time_start: '2025-10-26T02:45:00+02:00', time_end: '2025-10-26T03:00:00+01:00', SEK_per_kWh: 0.1 },
+    { time_start: '2025-10-26T02:00:00+01:00', time_end: '2025-10-26T02:15:00+01:00', SEK_per_kWh: 0.2 },
+  ];
+  const iv = K.tolkaPriser(rader);
+  assert.equal(iv[0].langd, 15);
+  assert.equal(iv[0].slut, '2025-10-26T02:00:00+01:00');
+  assert.equal(iv[1].t0 - iv[0].t0, 15 * 60e3);
+});
+
+test('SMHI-prognos: glesa tidssteg interpoleras per timme och ofullständiga dygn räknas', () => {
+  const smhi = { timeSeries: [
+    { time: '2026-01-10T22:00:00Z', data: { air_temperature: 0, wind_speed: 2 } },   // 23 svensk tid
+    { time: '2026-01-11T05:00:00Z', data: { air_temperature: 6, wind_speed: 8 } },   // 06
+    { time: '2026-01-11T23:00:00Z', data: { air_temperature: 6, wind_speed: 8 } },   // 00 nästa dygn
+  ] };
+  const d = dygnFranTimmar(smhiTimmar(smhi));
+  assert.equal(d['2026-01-10'].timmarTemp, 1);
+  assert.equal(d['2026-01-11'].timmarTemp, 24);
+  // Tidsvägt: 00–05 stiger linjärt från ~0,86 till ~5,1, därefter 6 resten av dygnet.
+  assert.ok(d['2026-01-11'].temp > 4.9 && d['2026-01-11'].temp < 5.3, String(d['2026-01-11'].temp));
+  // Ett dygn med bara 1 timme tas inte med i modellens väder.
+  const v = kombineraVader([d], [d]);
+  assert.ok(!v['2026-01-10'] && v['2026-01-11']);
+});
+
+test('SMHI: uppmätta timmar fyller dagens passerade timmar', () => {
+  const prognos = { '2026-01-11 12': { temp: 1, vind: 1 } };
+  const obs = Object.fromEntries(Array.from({ length: 12 }, (_, h) => [`2026-01-11 ${String(h).padStart(2, '0')}`, { temp: 3 }]));
+  const d = dygnFranTimmar(slaIhopTimmar(prognos, obs));
+  assert.equal(d['2026-01-11'].timmarTemp, 13);
+});
+
+test('tidstariff: normalpris räknas med den avgift som gällde timmen, så normalt pris ger ingen merkostnad', () => {
+  const tid = { ...inst, natTariff: 'tid' };
+  const tim = {};
+  for (let d = '2026-07-01'; d <= '2026-07-30'; d = K.laggTillDagar(d, 1)) tim[d] = new Array(24).fill(0.3);
+  const ref = K.referens(K.posterFranTimpriser(tim, '2026-07-01', '2026-07-30'), tid);
+  assert.ok(Math.abs(ref.totalMedian - K.totalpris(0.3, '2026-07-15', 12, tid)) < 1e-9);
+  // Kvällstopp 2,6 x median en sommardag ska bli en dyr period även med tidstariff.
+  const spot = new Array(24).fill(0.3); spot[18] = spot[19] = spot[20] = 0.78;
+  assert.equal(K.dyraPerioder(K.berika(kvartar('2026-07-15', spot), ref, tid)).length, 1);
+});
+
+test('dygnskostnad: elhandelns månadsavgift redovisas som elpris och den saknade sommartidstimmen kostar inget', () => {
+  const spot = new Array(24).fill(0.5); spot[2] = null;
+  const k = K.dygnskostnad('2026-03-29', spot, 5, { ...inst, paslagOre: 0 });
+  assert.equal(k.kwhTim[2], 0);
+  const noll = K.dygnskostnad('2026-03-29', new Array(24).fill(0), 5, { ...inst, paslagOre: 0 }, new Array(24).fill(0));
+  assert.ok(Math.abs(noll.delar.elpris - inst.handelKrManad * 12 / 365) < 1e-9);
+  assert.ok(Math.abs(noll.delar.natavgift - inst.natFastKrManad.sakring * 12 / 365) < 1e-9);
+});
+
+test('period som slutar vid midnatt visas som 24:00', () => {
+  const spot = new Array(24).fill(0.3); spot[22] = spot[23] = 2;
+  const ref = K.referens(new Array(720).fill(0.3), inst);
+  const p = K.dyraPerioder(K.berika(kvartar('2026-01-14', spot), ref, inst));
+  assert.equal(p[0].tillTxt, '24:00');
+});
+
+test('prognos före kl 13: ingen horisont längre än 5 dygn', () => {
+  const modell = JSON.parse(readFileSync(new URL('../app/modell/prismodell.json', import.meta.url)));
+  const v = JSON.parse(readFileSync(new URL('./fixtures/prognos_vektorer.json', import.meta.url)))[0];
+  // Låtsas att morgondagens priser saknas: senast = idag = v.senast
+  const vader = { ...v.vader, [v.senast]: v.vader[v.senast] };
+  const p = prisprognos(modell, v.dygnspris, vader, v.senast, v.senast);
+  assert.ok(p.length > 0 && p.every((x) => x.horisont <= 5), JSON.stringify(p.map((x) => x.horisont)));
+});
+
+test('notis: rätt schemalagd körning skickar, sommar- och vintertid', () => {
+  const sommar = new Date('2026-07-01T11:45:00Z'), vinter = new Date('2026-01-14T12:45:00Z');
+  assert.equal(svenskOffset(sommar), 'GMT+2');
+  assert.equal(arRattKorning('40 11 * * *', sommar), true);
+  assert.equal(arRattKorning('40 12 * * *', sommar), false);
+  assert.equal(arRattKorning('40 12 * * *', vinter), true);
+  assert.equal(arRattKorning('40 11 * * *', vinter), false);
+  // Omställningsdagarna (sker kl 01 UTC, före körningarna)
+  assert.equal(arRattKorning('40 11 * * *', new Date('2026-03-29T11:40:00Z')), true);
+  assert.equal(arRattKorning('40 12 * * *', new Date('2026-10-25T12:40:00Z')), true);
+});
