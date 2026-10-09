@@ -457,7 +457,7 @@ function oppnaOrderdialog() {
 $('#orderdialog').addEventListener('close', () => {
   if ($('#orderdialog').returnValue !== 'lagg') return;
   const f = $('#orderform');
-  const senastMs = Date.parse(`${f.dag.value}T${f.tid.value}:00${tidszon(f.dag.value, f.tid.value)}`);
+  const senastMs = P.lokalMs(f.dag.value, f.tid.value);
   const maxPris = f.maxPris.value === '' ? null : Number(String(f.maxPris.value).replace(',', '.'));
   if (!Number.isFinite(senastMs)) return;
   ordrar.push({ id: Math.random().toString(36).slice(2, 10), syssla: f.syssla.value, senastMs, maxPris: Number.isFinite(maxPris) ? maxPris : null, skapad: Date.now() });
@@ -465,11 +465,6 @@ $('#orderdialog').addEventListener('close', () => {
   if (senast) visaOrderbok(senast);
 });
 $('#order-avbryt').addEventListener('click', () => $('#orderdialog').close('avbryt'));
-
-/** +01:00 eller +02:00 för en svensk lokal tid. */
-function tidszon(datum, tid) {
-  return K.lokalKlocka(Date.parse(`${datum}T${tid}:00+01:00`)).txt === tid ? '+01:00' : '+02:00';
-}
 
 document.addEventListener('click', (e) => {
   if (e.target.closest('#ny-order')) { oppnaOrderdialog(); return; }

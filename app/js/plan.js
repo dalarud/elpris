@@ -322,7 +322,7 @@ export function paminnelse({ namn, startMs, timer, text }, nuMs) {
   if (timer && (start.timme >= 22 || start.timme < 7)) {
     // Påminn kvällen före, senast kl 21, ett helt antal timmar före start – då
     // ger den fördröjda starten exakt rätt tid.
-    const kl21 = Date.parse(`${start.timme < 7 ? K.laggTillDagar(start.datum, -1) : start.datum}T21:00:00${offset(startMs)}`);
+    const kl21 = lokalMs(start.timme < 7 ? K.laggTillDagar(start.datum, -1) : start.datum, '21:00');
     const h = Math.ceil((startMs - kl21) / 3600e3);
     const kvall = startMs - h * 3600e3;
     if (h >= 1 && kvall > nuMs + 2 * 60e3) {
@@ -334,12 +334,14 @@ export function paminnelse({ namn, startMs, timer, text }, nuMs) {
   return { narMs, nar: K.lokalKlocka(narMs), meddelande };
 }
 
-/** Svensk tidszonsförskjutning (+01:00/+02:00) vid tidpunkten. */
-function offset(ms) {
-  const k = K.lokalKlocka(ms);
-  const lokal = Date.UTC(+k.datum.slice(0, 4), +k.datum.slice(5, 7) - 1, +k.datum.slice(8, 10), k.timme, k.minut);
-  const min = Math.round((lokal - Math.floor(ms / 60e3) * 60e3) / 60e3);
-  return `+${tva(Math.floor(min / 60))}:${tva(min % 60)}`;
+/** Tidpunkt (ms) för en svensk lokal tid, t.ex. ('2026-10-24', '21:00'). Rätt även kring sommartidsbytet. */
+export function lokalMs(datum, tid) {
+  for (const off of ['+01:00', '+02:00']) {
+    const ms = Date.parse(`${datum}T${tid}:00${off}`);
+    const k = K.lokalKlocka(ms);
+    if (k.txt === tid && k.datum === datum) return ms;
+  }
+  return Date.parse(`${datum}T${tid}:00+01:00`);   // tiden finns inte (hoppas över vid sommartid)
 }
 
 /** ntfy-meddelande (JSON-publicering) för en påminnelse. sekvens: [-_A-Za-z0-9]{1,64}. */

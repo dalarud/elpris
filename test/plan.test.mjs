@@ -160,6 +160,14 @@ test('påminnelse: sommartid ger rätt kvällstid', () => {
   assert.equal(p.nar.txt, '21:00');
 });
 
+test('påminnelse och lokalMs: rätt kring bytet till vintertid 25 oktober', () => {
+  assert.equal(new Date(P.lokalMs('2026-10-24', '21:00')).toISOString(), '2026-10-24T19:00:00.000Z');
+  assert.equal(new Date(P.lokalMs('2026-10-25', '21:00')).toISOString(), '2026-10-25T20:00:00.000Z');
+  const p = P.paminnelse({ namn: 'Tork', startMs: Date.parse('2026-10-25T03:30:00+01:00'), timer: true }, Date.parse('2026-10-24T12:00:00+02:00'));
+  assert.ok(p.narMs <= P.lokalMs('2026-10-24', '21:00'));
+  assert.match(p.meddelande, /startar den kl 03:30/);
+});
+
 test('bilFonster: billigaste laddfönster i natt, jämfört med kl 18', () => {
   const idag = new Array(24).fill(1.0); idag[18] = 2.0;
   const imorgon = new Array(24).fill(1.0); imorgon[3] = imorgon[4] = 0.1;
