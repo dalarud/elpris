@@ -101,3 +101,18 @@ Före sammanslagningen till `main` granskades koden i fyra delområden: beräkni
 
 Efter rättningarna hittade efterhandstestet samma varningsdagar som tidigare. Förvarningarna blev 63, varav 43 stämde. Alla rättningar har enhetstester.
 
+En **andra granskning av själva rättningarna** hittade 12 nya fel, och alla rättades:
+
+- **Allvarligast:** den nya Avbryt-knappen blev formulärets standardknapp, så Enter i ett fält kastade ändringarna.
+- **Bortfall av en SMHI-station:** prisuppskattningen försvann helt före kl 13 om en enda av nio stationer saknade mätningar. Nu fylls luckan med närmaste kända timme, och tomma svar cachas inte.
+- **Nattlig återaktivering:** den slog även på arbetsflöden som användaren själv stängt av. Nu rör den bara aktiva arbetsflöden eller sådana som stängts av på grund av inaktivitet.
+- **Mindre fel:**
+  - Uppdatering när appen visas igen inom en minut.
+  - Knapparna vid 320 px bredd.
+  - Fel orsakstext när prognosen saknas.
+  - Inställningar när lagring är blockerad.
+  - Tillfälliga nätverksfel i notisens väntan.
+  - Datumkontroll och symlänkade sökvägar.
+
+Inställningsdialogen kontrollerades i Chromium: Enter sparar, Avbryt och Återställ sparar inget, och inget rullar i sidled vid 320 px. Tester: 19 enhetstester.
+

@@ -17,7 +17,7 @@
 import * as K from '../app/js/kalkyl.js';
 import { prisprognos } from '../app/js/prognos.js';
 import { priserDygn, timprisHistorik, vaderprognos, tempHistorik } from '../app/js/data.js';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -127,7 +127,8 @@ function lasDatum(argv) {
   const i = argv.findIndex((a) => a === '--datum' || a.startsWith('--datum='));
   if (i < 0) return K.dagensDatum();
   const d = argv[i].includes('=') ? argv[i].split('=')[1] : argv[i + 1];
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d ?? '')) {
+  const giltigt = /^\d{4}-\d{2}-\d{2}$/.test(d ?? '') && !Number.isNaN(Date.parse(`${d}T12:00:00Z`)) && K.laggTillDagar(d, 0) === d;
+  if (!giltigt) {
     console.error('Ange datum som --datum ÅÅÅÅ-MM-DD');
     process.exit(64);
   }
@@ -136,24 +137,37 @@ function lasDatum(argv) {
 
 const vanta = (ms) => new Promise((r) => setTimeout(r, ms));
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/** Körs filen direkt (inte importerad)? Jämför verkliga sökvägar (symlänkar, mellanslag). */
+function arHuvudmodul() {
+  try { return Boolean(process.argv[1]) && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
+
+/** byggNotiser, men ett tillfälligt nätverks- eller serverfel blir ett nytt försök i stället för en krasch. */
+async function forsokBygg(idag) {
+  try { return await byggNotiser(idag); } catch (e) { return { notiser: [], orsak: `Hämtningen misslyckades (${e.message}).` }; }
+}
+
+if (arHuvudmodul()) {
   const idag = lasDatum(process.argv);
   const schemalagd = process.argv.includes('--schemalagd');
-  if (schemalagd && !arRattKorning(process.env.SCHEMA)) {
-    console.log(`Den här körningen (${process.env.SCHEMA ?? 'manuell'}) hör inte till aktuell svensk tid (${svenskOffset()}) – den andra körningen skickar.`);
+  const schema = process.env.SCHEMA || '';
+  if (schemalagd && !arRattKorning(schema)) {
+    console.log(schema
+      ? `Den här körningen (${schema}) hör inte till aktuell svensk tid (${svenskOffset()}) – den andra schemalagda körningen skickar.`
+      : 'Manuell körning utanför kl 13–16 svensk tid – kryssa i "Skicka även utanför tidsfönstret" för att skicka ändå.');
     process.exit(0);
   }
-  // Schemalagt: vänta in sent publicerade priser i upp till en timme.
-  let res = await byggNotiser(idag);
+  // Schemalagt: vänta in sent publicerade priser (och tillfälliga fel) i upp till en timme.
+  let res = await forsokBygg(idag);
   for (let forsok = 1; schemalagd && res.orsak && forsok <= 12; forsok++) {
     console.log(`${res.orsak} Försöker igen om 5 minuter (${forsok}/12).`);
     await vanta(5 * 60e3);
-    res = await byggNotiser(idag);
+    res = await forsokBygg(idag);
   }
   if (res.orsak) {
     console.log(res.orsak);
     // Rött jobb bara när en schemalagd körning gett upp; en testkörning före kl 13 är inget fel.
-    if (schemalagd) { console.log('::error::Morgondagens priser saknades även efter en timme.'); process.exitCode = 1; }
+    if (schemalagd) { console.log('::error::Morgondagens priser kunde inte hämtas inom en timme.'); process.exitCode = 1; }
   } else if (!res.notiser.length) console.log(`Inga varningar (normalt ${K.krKwh(res.ref.totalMedian)}).`);
   for (const n of res.notiser) await skicka(n);
 }

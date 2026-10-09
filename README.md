@@ -38,7 +38,7 @@ Beslut, antaganden och öppna frågor: [docs/beslutslogg.md](docs/beslutslogg.md
 4. Lägg in samma namn i GitHub under **Settings → Secrets and variables → Actions → New repository secret** med namnet `NTFY_TOPIC`.
 5. Testa efter kl 13: **Actions → Varna för dyr el → Run workflow**, med "Skicka även utanför tidsfönstret" ikryssat. Skickas inget betyder det att morgondagen inte är dyr. Loggen visar vad som räknades ut.
 
-Notisen skickas strax efter kl 13:40 svensk tid. Kommer morgondagens priser sent väntar tjänsten i upp till en timme. GitHub stänger av schemalagda körningar i publika repon efter 60 dagar utan aktivitet. Den nattliga körningen återaktiverar dem, och skulle de ändå stängas av får du ett mejl från GitHub och kan slå på dem under **Actions**.
+Notisen skickas strax efter kl 13:40 svensk tid. Kommer morgondagens priser sent väntar tjänsten i upp till en timme. GitHub stänger av schemalagda körningar i publika repon efter 60 dagar utan aktivitet. Den nattliga körningen håller dem igång, och skulle de ändå stängas av får du ett mejl från GitHub och kan slå på dem under **Actions**. Vill du pausa notiserna, till exempel under en resa, väljer du **Actions → Varna för dyr el → ⋯ → Disable workflow**. Ett arbetsflöde som du har stängt av själv slås inte på igen automatiskt.
 
 ### Egna mätvärden
 Ladda ner förbrukningen per timme eller kvart från Jönköping Energis Mina sidor (eller elhandlarens app) och läs in filen under **Inställningar → Mätvärden**. Filen stannar i webbläsaren. Då blir kostnaderna uppmätta i stället för beräknade.

@@ -120,6 +120,30 @@ export function slaIhopTimmar(prognos, ...uppmatt) {
   return ut;
 }
 
+/**
+ * Fyller saknade timmar i ett dygn med närmaste kända timme samma dygn. Används för
+ * dagens dygn när en stations mätningar för de passerade timmarna saknas, så att
+ * ett enda bortfall inte tar bort hela prisuppskattningen.
+ */
+export function fyllLuckor(timmar, datum) {
+  const ut = { ...timmar };
+  for (const falt of ['temp', 'vind']) {
+    const kanda = [];
+    for (let h = 0; h < 24; h++) {
+      const v = ut[`${datum} ${String(h).padStart(2, '0')}`]?.[falt];
+      if (Number.isFinite(v)) kanda.push([h, v]);
+    }
+    if (!kanda.length) continue;
+    for (let h = 0; h < 24; h++) {
+      const k = `${datum} ${String(h).padStart(2, '0')}`;
+      if (Number.isFinite(ut[k]?.[falt])) continue;
+      const narmast = kanda.reduce((a, b) => (Math.abs(b[0] - h) < Math.abs(a[0] - h) ? b : a));
+      ut[k] = { ...(ut[k] ?? {}), [falt]: narmast[1] };
+    }
+  }
+  return ut;
+}
+
 /** Timvärden -> dygnsmedel { datum: { temp, vind, timmarTemp, timmarVind } }. */
 export function dygnFranTimmar(timmar) {
   const per = {};

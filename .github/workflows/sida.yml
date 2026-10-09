@@ -44,8 +44,9 @@ jobs:
 
   hall-igang:
     # GitHub stänger av schemalagda arbetsflöden i publika repon efter 60 dagar
-    # utan aktivitet. Att aktivera dem på nytt varje natt (samma metod som
-    # keepalive-workflow i API-läge) håller notiserna och datauppdateringen igång.
+    # utan aktivitet. Att anropa "enable" varje natt (samma metod som
+    # keepalive-workflow i API-läge) håller dem igång. Ett arbetsflöde som du själv
+    # har stängt av (disabled_manually, t.ex. för att pausa notiserna) lämnas i fred.
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
@@ -55,5 +56,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/varning.yml/enable"
-          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/sida.yml/enable"
+          for wf in varning.yml sida.yml; do
+            state=$(gh api "repos/${{ github.repository }}/actions/workflows/$wf" --jq .state)
+            echo "$wf: $state"
+            if [ "$state" = "active" ] || [ "$state" = "disabled_inactivity" ]; then
+              gh api -X PUT "repos/${{ github.repository }}/actions/workflows/$wf/enable"
+            fi
+          done

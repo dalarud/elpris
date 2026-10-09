@@ -3,8 +3,8 @@
 //   Väderprognos: SMHI Öppna data, punktprognos snow1g (cirka 10 dygn)
 //   Uppmätt temp: SMHI Öppna data, metobs, station Jönköping-Axamo (74460)
 
-import { tolkaPriser, laggTillDagar, medel } from './kalkyl.js';
-import { smhiTimmar, obsTimmar, slaIhopTimmar, dygnFranTimmar, kombineraVader, PROGNOSORTER } from './prognos.js';
+import { tolkaPriser, laggTillDagar, medel, dagensDatum } from './kalkyl.js';
+import { smhiTimmar, obsTimmar, slaIhopTimmar, fyllLuckor, dygnFranTimmar, kombineraVader, PROGNOSORTER } from './prognos.js';
 
 const PRIS_URL = (datum, zon) => `https://www.elprisetjustnu.se/api/v1/prices/${datum.slice(0, 4)}/${datum.slice(5, 7)}-${datum.slice(8, 10)}_${zon}.json`;
 const SMHI_PROGNOS = (lat, lon) => `https://opendata-download-metfcst.smhi.se/api/category/snow1g/version/1/geotype/point/lon/${lon.toFixed(4)}/lat/${lat.toFixed(4)}/data.json`;
@@ -95,17 +95,18 @@ export async function vaderprognos(plats, { hemStation = 74460 } = {}) {
   const prognos = async (o) => {
     const nyckel = `smhi:${o.lat.toFixed(2)}:${o.lon.toFixed(2)}`;
     const c = lasCache(nyckel);
-    if (c && Date.now() - c.t < 3 * 3600e3 && c.timmar) return c.timmar;
+    const harData = (x) => x && Object.keys(x).length > 0;
+    if (c && Date.now() - c.t < 3 * 3600e3 && harData(c.timmar)) return c.timmar;
     const timmar = smhiTimmar(await hamtaJson(SMHI_PROGNOS(o.lat, o.lon)));
-    skrivCache(nyckel, { t: Date.now(), timmar });
+    if (harData(timmar)) skrivCache(nyckel, { t: Date.now(), timmar });   // cacha aldrig ett tomt/404-svar
     return timmar;
   };
   const obs = async (param, station, falt) => {
     const nyckel = `smhiobs:${param}:${station}`;
     const c = lasCache(nyckel);
-    if (c && Date.now() - c.t < 3600e3) return c.timmar;
+    if (c && Date.now() - c.t < 3600e3 && c.timmar && Object.keys(c.timmar).length) return c.timmar;
     const timmar = obsTimmar(await hamtaJson(SMHI_OBS_TIM(param, station)), falt);
-    skrivCache(nyckel, { t: Date.now(), timmar });
+    if (Object.keys(timmar).length) skrivCache(nyckel, { t: Date.now(), timmar });
     return timmar;
   };
   const tyst = (p) => p.catch(() => ({}));
@@ -117,9 +118,13 @@ export async function vaderprognos(plats, { hemStation = 74460 } = {}) {
     Promise.all(PROGNOSORTER.vind.map((o) => tyst(prognos(o)))),
     Promise.all(PROGNOSORTER.vind.map((o) => tyst(obs(4, o.station, 'vind')))),
   ]);
-  const temp = tempP.map((p, i) => dygnFranTimmar(slaIhopTimmar(p, tempO[i])));
-  const vind = vindP.map((p, i) => dygnFranTimmar(slaIhopTimmar(p, vindO[i])));
-  return { hem: dygnFranTimmar(slaIhopTimmar(hemP, hemO)), modell: kombineraVader(temp, vind) };
+  // Mätningar för dagens passerade timmar + prognos; saknas en stations mätningar
+  // fylls dagens tidiga timmar med närmaste kända värde (se fyllLuckor).
+  const idag = dagensDatum();
+  const dygn = (p, o) => dygnFranTimmar(fyllLuckor(slaIhopTimmar(p, o), idag));
+  const temp = tempP.map((p, i) => dygn(p, tempO[i]));
+  const vind = vindP.map((p, i) => dygn(p, vindO[i]));
+  return { hem: dygn(hemP, hemO), modell: kombineraVader(temp, vind), prognosHamtad: [...tempP, ...vindP].every((p) => Object.keys(p).length > 0) };
 }
 
 /** Uppmätt dygnsmedeltemperatur (senaste ~4 månaderna) + förberäknad historik. */

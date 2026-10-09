@@ -190,3 +190,12 @@ test('notis: rätt schemalagd körning skickar, sommar- och vintertid', () => {
   assert.equal(arRattKorning('40 11 * * *', new Date('2026-03-29T11:40:00Z')), true);
   assert.equal(arRattKorning('40 12 * * *', new Date('2026-10-25T12:40:00Z')), true);
 });
+
+test('fyllLuckor: saknade mätningar för dagens tidiga timmar fylls så att dygnet räknas', async () => {
+  const { fyllLuckor } = await import('../app/js/prognos.js');
+  const prognos = {};
+  for (let h = 8; h < 24; h++) prognos[`2026-01-11 ${String(h).padStart(2, '0')}`] = { temp: h, vind: 5 };
+  const d = dygnFranTimmar(fyllLuckor(prognos, '2026-01-11'));
+  assert.equal(d['2026-01-11'].timmarTemp, 24);
+  assert.equal(d['2026-01-11'].timmarVind, 24);
+});

@@ -30,13 +30,14 @@ let matvarden = lasLokalt('matvarden', null);
 // ------------------------------------------------------------------ start ----
 
 let korning = 0;
-let senastUppdaterad = 0;
+let senastKvart = -1;   // kvarten (ms / 15 min) då senaste körningen startade
 
 async function start() {
   const denna = ++korning;            // en senare körning (timer, Spara) vinner
   const idag = K.dagensDatum();
   const imorgon = K.laggTillDagar(idag, 1);
   const nu = { ...K.klockslagNu(), ms: Date.now() };
+  senastKvart = Math.floor(nu.ms / 900e3);
   try {
     const [pIdag, pImorgon] = await Promise.all([
       D.priserDygn(idag, inst.elomrade, idag),
@@ -70,13 +71,15 @@ async function start() {
     for (const [d, v] of Object.entries(tim)) { const m = K.medel(v); if (Number.isFinite(m)) dygnspris[d] = m; }
     const senast = pImorgon ? imorgon : idag;
     const prognos = modell ? prisprognos(modell, dygnspris, vader.modell, senast, idag) : [];
-    const prognosSaknas = !prognos.length;
+    // Varför uppskattningen saknas, om den saknas (visas i varningar och kommande dagar).
+    const prognosSaknas = prognos.length ? null
+      : !vader.prognosHamtad || !Object.keys(vader.modell).length ? 'SMHI:s väderprognos kunde inte hämtas'
+        : 'den kunde inte beräknas';
 
     visaJustNu(berikade, ref, idag, nu);
     visaVarningar(berikade, ref, kwhTim, prognos, idag, nu, pImorgon, tempFor, prognosSaknas);
     visaDagar(berikade, ref, idag, nu, pImorgon, prognos, tempFor, kostnadDygn, prognosSaknas);
     visaKostnad(tim, idag, tempFor, kostnadDygn, prognos);
-    senastUppdaterad = Date.now();
   } catch (e) {
     console.error(e);
     if (denna === korning) $('#just-nu').innerHTML = `<p class="fel">Kunde inte hämta priserna just nu (${esc(e.message)}). Försök igen om en stund.</p>`;
@@ -151,7 +154,7 @@ function visaVarningar(berikade, ref, kwhTim, prognos, idag, nu, pImorgon, tempF
   if (!kort.length) {
     const toppar = vanliga.map((d) => `${K.dagnamn(d.datum, idag)} ${d.perioder.map((p) => `${p.franTxt}–${p.tillTxt}`).join(' och ')} (upp till ${K.krKwh(Math.max(...d.perioder.map((p) => p.max)))}, kostar huset ca ${K.kr(d.extra)} extra)`);
     const framat = prognosSaknas
-      ? ' Uppskattningen för de kommande dagarna saknas just nu (väderprognosen kunde inte hämtas).'
+      ? ` Uppskattningen för de kommande dagarna saknas just nu (${prognosSaknas}).`
       : ` Inget tyder heller på dyra dagar de närmaste ${MAX_DYGN_FRAM} dygnen.`;
     kort.push(`<article class="varning lugnt"><h3>Inga varningar</h3><p>Inget ${pImorgon ? 'i dag eller i morgon' : 'resten av dagen'} kostar huset mer än ${K.kr(inst.varningKr)} extra.${framat}${toppar.length ? ` Vanliga toppar: ${esc(toppar.join('; '))}.` : ''}</p></article>`);
   }
@@ -217,7 +220,7 @@ function visaDagar(berikade, ref, idag, nu, pImorgon, prognos, tempFor, kostnadD
   $('#dagar').innerHTML = `<h2>Kommande dagar</h2>
     <p class="undertext">Kronor = vad ditt hus beräknas kosta det dygnet, allt inräknat. Tryck på en dag för detaljer. Dagar med ≈ är uppskattningar.</p>
     ${rader.join('')}
-    ${prognosSaknas ? '<p class="undertext">Uppskattning för dagarna därefter saknas just nu – SMHI:s väderprognos kunde inte hämtas.</p>' : ''}`;
+    ${prognosSaknas ? `<p class="undertext">Uppskattning för dagarna därefter saknas just nu – ${prognosSaknas}.</p>` : ''}`;
 }
 
 function dagsniva(timNiva) {
@@ -342,11 +345,16 @@ $('#oppna-installningar').addEventListener('click', () => {
 });
 $('#installningar').addEventListener('close', () => {
   if ($('#installningar').returnValue === 'spara') {
-    sparaLokalt('installningar', lasFormular());
-    inst = laddaInstallningar();
+    const ny = lasFormular();
+    // Använd formulärets värden direkt; de gäller även om webbläsaren inte låter oss spara.
+    inst = { ...K.STANDARD, ...ny,
+      natFastKrManad: { ...K.STANDARD.natFastKrManad, ...ny.natFastKrManad },
+      overforing: { ...K.STANDARD.overforing, ...ny.overforing } };
+    if (!sparaLokalt('installningar', ny)) $('#plats').textContent = 'SE3 · Jönköping · inställningarna sparas inte i den här webbläsaren';
     start();
   } else if (matvardenAndrade) start();
 });
+$('#avbryt').addEventListener('click', () => $('#installningar').close('avbryt'));
 // Återställ fyller bara formuläret med standardvärdena; inget sparas förrän Spara.
 $('#aterstall').addEventListener('click', () => fyllFormular(K.STANDARD));
 $('#matfil').addEventListener('change', async (e) => {
@@ -376,7 +384,8 @@ function schemalagg() {
   timer = setTimeout(() => { if (document.visibilityState === 'visible') start(); schemalagg(); }, 900e3 - (Date.now() % 900e3) + 3000);
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && Date.now() - senastUppdaterad > 60e3) { start(); schemalagg(); }
+  // En ny kvart sedan senaste körningen betyder nytt pris (och kanske nytt dygn).
+  if (document.visibilityState === 'visible' && Math.floor(Date.now() / 900e3) !== senastKvart) { start(); schemalagg(); }
 });
 start();
 schemalagg();

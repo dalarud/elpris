@@ -158,7 +158,8 @@ input, select {
   background: var(--bg); color: var(--text); width: 100%;
 }
 .rad { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.knappar { display: flex; justify-content: flex-end; gap: 8px; }
+.knappar { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+#aterstall { margin-right: auto; }
 .knapp, .knapp-sekundar {
   font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 10px; cursor: pointer; border: 1px solid transparent;
 }
