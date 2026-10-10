@@ -100,7 +100,7 @@ main > * { min-width: 0; }   /* låt rader med många rutor rulla i stället fö
 .signal-pris { margin-left: auto; white-space: nowrap; }
 .signal-text { margin: 6px 0 10px; font-size: 1.02rem; }
 .remsa-ram { position: relative; }
-.remsa { display: block; width: 100%; height: 24px; border-radius: 6px; cursor: pointer; touch-action: manipulation; }
+.remsa { display: block; width: 100%; height: 32px; border-radius: 6px; cursor: pointer; touch-action: manipulation; }
 .remsa:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .z-bas { fill: var(--normalt-bg); }
 .z-billig { fill: var(--billigt); }
@@ -122,13 +122,17 @@ main > * { min-width: 0; }   /* låt rader med många rutor rulla i stället fö
 .vadom p { margin: 0 0 4px; }
 .vadom ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .vadom li { display: grid; grid-template-columns: 4.2rem 5.6rem 1fr; gap: 6px; }
+@media (max-width: 400px) {
+  .vadom li { grid-template-columns: 1fr auto; row-gap: 0; }
+  .vadom li .dampad:last-child { grid-column: 1 / -1; text-align: left; font-size: 0.82rem; margin-bottom: 4px; }
+}
 .vadom li .dampad { text-align: right; }
 .lank { font: inherit; background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; }
 .kurs { margin-top: 10px; }
 .kurs > summary { cursor: pointer; color: var(--dampad); font-size: 0.9rem; font-weight: 600; }
 .kurs-ram { margin-top: 8px; }
 .kursvy { display: block; width: 100%; height: 72px; }
-.kursvy path { cursor: pointer; }
+.kursvy { cursor: pointer; }
 .k-normal { fill: var(--normalt); opacity: 0.35; }
 .k-billig { fill: var(--billigt); }
 .k-dyr { fill: var(--dyrt); }
@@ -160,12 +164,16 @@ ul.enkel li { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding
 .varde { font-weight: 650; white-space: nowrap; }
 .knapp-ikon.liten { padding: 2px 4px; color: var(--dampad); line-height: 1; }
 .paminner { display: inline-flex; align-items: center; gap: 4px; font-size: 0.8rem; color: var(--accent); flex-wrap: wrap; }
+.fler > summary { cursor: pointer; color: var(--dampad); font-size: 0.88rem; padding: 6px 0; border-top: 1px solid var(--linje); }
 .ingen-roll { margin: 6px 0 0; padding-top: 8px; border-top: 1px solid var(--linje); color: var(--dampad); font-size: 0.9rem; }
 .kontroll { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--linje); display: grid; gap: 6px; font-size: 0.88rem; }
 .ordrar { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--linje); }
 .ordrar h3 { margin: 0; }
 .knapp-sekundar.liten { padding: 4px 10px; font-size: 0.85rem; }
-.pamin-tips { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 10px; }
+.pamin-tips { display: flex; align-items: flex-start; gap: 6px; margin-top: 10px; }
+.over-tak { font-size: 0.83rem; color: var(--dyrt); }
+.losa { list-style: none; margin: 6px 0 0; padding: 0; font-size: 0.85rem; display: grid; gap: 4px; }
+.skarmlasare { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; margin: -1px; padding: 0; border: 0; }
 
 /* Förvarning */
 .forvarning { margin: 8px 0 0; padding: 10px 14px; border-radius: 12px; background: var(--dyrt-bg); color: var(--text); font-size: 0.92rem; }

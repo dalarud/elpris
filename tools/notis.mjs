@@ -73,12 +73,14 @@ export async function byggNotiser(idag, { kallor = {} } = {}) {
   const plan = P.dagsplan(imorgon, pImorgon, tim, temp, inst);
   if (plan.besked === 'draner') {
     const max = Math.max(...plan.dyra.map((p) => p.max));
-    const allaKanda = [...K.berika(pIdag, plan.ref, inst), ...plan.kvartar];
-    const delar = { [imorgon]: plan.delar };
-    const atgarder = K.dranerAtgarder(plan.dyra, allaKanda, delar, plan.ref, idag, beslutstid(pIdag, kallor.nuMs)).slice(0, 3);
-    const gor = atgarder.length
-      ? ` Gör så här: ${atgarder.map((x) => `${x.text.toLowerCase()} ${x.id === 'varme' ? x.detalj.split(' – ')[0] : `– ${x.nar}`} (≈ ${K.kr(x.sparar)})`).join('; ')}.`
-      : '';
+    // Samma beslut som appen: undvik både dagens och morgondagens dyra perioder.
+    const planIdag = P.dagsplan(idag, pIdag, tim, temp, inst);
+    const nuMs = beslutstid(pIdag, kallor.nuMs);
+    const allaKanda = [...planIdag.kvartar, ...plan.kvartar];
+    const undvik = [...planIdag.dyra, ...plan.dyra].filter((p) => p.slutMs > nuMs);
+    const atgarder = K.dranerAtgarder(plan.dyra, allaKanda, { [imorgon]: plan.delar }, plan.ref, idag, nuMs, { undvik, absolut: true }).slice(0, 3);
+    const liten = (t) => t.charAt(0).toLowerCase() + t.slice(1);
+    const gor = atgarder.length ? ` Gör så här: ${atgarder.map((x) => `${liten(x.text)} (≈ ${K.kr(x.sparar)})`).join('; ')}.` : '';
     notiser.push({
       titel: `Dra ner i morgon ${P.tiderText(plan.dyra)}`,
       text: `Upp till ${K.krKwh(max)} (normalt ${K.krKwh(plan.ref.totalMedian)}). Huset ≈ ${K.kr(plan.extra)} över normalt under de dyra timmarna (beräknat).${gor}`,

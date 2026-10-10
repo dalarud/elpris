@@ -50,13 +50,13 @@ Konceptet fick också lösa de fynd som granskningen av varv 2 hittade. Där gav
 |---|---|---|
 | **Dagsplanen** (`app/js/plan.js`) | Stöd och motstånd, avslutad auktion | Billiga perioder: kvartar vid eller under 30 dygnens 20:e percentil, minst 1 h. Dyra perioder: vid eller över 80:e percentilen, minst 30 min. Dygnet blir **lugnt** (ingen dyr period), **svängigt** (dyra perioder under 25 kr över normalt) eller **dra ner** (≥ 25 kr). Husets exponering räknas med normaltemperatur, så att appen och notisen alltid ger samma besked. |
 | **Ordermotorn** (`planera()` i `kalkyl.js`) | Bästa exekvering, courtage | Bästa start per syssla. Maskiner med timer prövas i hela timmar, övriga i kvartar, högst 24 h fram. Bastu föreslås kl 10–21 och ugn kl 10–20. Motorn säger också "starta före X" när det blir minst 1 kr dyrare om man väntar, och ger ett dagtidsalternativ om det kostar högst 25 öre eller 10 % mer. |
-| **Signalen** | Handelssignal | Ett ord: **Dra ner** (dra ner-dygn med dyr period kvar), **Vänta** (maskinerna sparar ≥ 1 kr), **Kör nu** (billigt nu, eller dyrare om man väntar) eller **Spelar ingen roll**. |
+| **Signalen** | Handelssignal | Ett ord härlett ur orderboken: **Dra ner** (dra ner-dygn med dyr period kvar), **Vänta** (det som är värt mest är att vänta), **Kör nu** (det som är värt mest är att inte skjuta upp) eller **Spelar ingen roll** (inget du kan köra nu är värt ≥ 1 kr). |
 | **Zonremsan** | Kurs mot nivåer | Tunn remsa från nu till slutet av de kända priserna. Billigt är grönt. Dyrt har kontur, men röd fyllning bara på dra ner-dygn. Tryck eller piltangent på en tid visar vad varje syssla kostar då (vad-om). |
 | **Kursen** (bakom tryck) | Kursgraf | En stapel per timme, grå utom i perioderna, med normalpriset som en linje. Tryck på en stapel ger vad-om. |
 | **Orderboken** | Orderbok, positionsstorlek | En rad per syssla, sorterad efter kronor, högst 7 rader. På dra ner-dygn byter den rubrik och visar husets exponering. Bockar blir en journal. |
 | **Kontrollrader** | Stående order, öppen position | Bilen: när laddboxen bör ladda i natt (antaget). Värmepumpen: hur mycket den ostyrda pumpen drar under de dyra perioderna, med länk till Smart Price. |
 | **Egna ordrar** | Limitorder med giltighetstid | Ange syssla, "klar senast" och pristak (förslag: 30 dygnens 25:e percentil). Är priserna kända fram till senast-tiden körs ordern på bästa tid. Annars väntar den på nästa dygns priser kl 13, om inte ett känt fönster redan klarar taket, med bästa kända tid som reserv. |
-| **Påminnelser** | Larm | Klockknapp per rad: ett schemalagt ntfy-meddelande (högst 3 dygn fram) med samma sekvens-id, så att det kan flyttas om planen ändras eller tas bort. Maskiner med timer som ska gå på natten påminns kvällen före med exakt fördröjning: "ställ 7 h nu (kl 20:30), så startar den kl 03:30". |
+| **Påminnelser** | Larm | Klockknapp per rad: ett schemalagt ntfy-meddelande (högst 3 dygn fram, aldrig kl 22–07) med samma sekvens-id, så att det kan flyttas om planen ändras mer än en timme eller tas bort. Texten skrivs för när den kommer fram. Maskiner med timer som ska gå på natten påminns kvällen före med exakt fördröjning: "ställ 6 h nu (kl 21:30), så startar den kl 03:30". Har kvällen passerat ställer man timern direkt. |
 | **Månaden + journal** | Realiserat resultat | Kostnaden hittills och ≈ hela månaden. "Flyttat i oktober: ≈ X kr" summerar det du bockat av, med beloppet låst när du bockade. |
 | **Notisen** | Notis när auktionen stängt | Bara när morgondagens dagsplan säger dra ner. Samma tider och åtgärder som i appen. |
 | **Mer** | Resultatattribution, positioner, hedge | Jämförelse med i fjol uppdelad i pris och förbrukning. Positioner, alltså vad bil, varmvatten, hushåll och värme betalat mot dygnsmedel. Prissäkring: jämför kvartspris med ett eget fastprisanbud, utan rekommendation. |
@@ -92,3 +92,21 @@ Se `analys/resultat_varningar.md`.
 - **Bilen:** 2 500 kWh/år vid 3,7 kW, och att den laddas varje natt. Laddboxens schema är okänt (F3).
 - **Påminnelser** kräver att du fyller i ditt ntfy-ämne i appen. Ämnet sparas bara i webbläsaren. ntfy.sh tillåter högst 3 dygns fördröjning.
 - **Egna ordrar** räknas om när appen är öppen. Det finns ingen server som bevakar dem. En påminnelse på ordern ger en notis även när appen är stängd.
+
+## 7. Granskning av varv 3 och rättningar (2026-10-10)
+
+Tre granskare (beräkningar, UX, robusthet) med var sin skeptisk verifierare hittade 36 fynd. Alla bekräftades, några med sänkt allvarlighetsgrad. De viktigaste:
+
+| Fynd | Rättning |
+|---|---|
+| Notisen räknade med 7 °C som normaltemperatur och gav ett annat besked än appen 16 dygn av 366 (7 missade dra ner-dygn på vintern och 9 falsklarm). | `lasTemp()` läser samma temperaturdata som appen. Notisen ger nu samma belopp som appen, t.ex. 65 kr för 22/9. |
+| Påminnelser för maskiner med timer kunde flyttas till mitt i natten. Texten ("ställ 4 h") räknades från när knappen trycktes, så den som följde den startade maskinen 4 timmar för sent. | `paminnelse()` skriver texten för leveranstillfället med absoluta klockslag, lägger aldrig en påminnelse kl 22–07 och flyttar den bara om planen ändras ≥ 1 h (timer) eller ≥ 30 min. Påminnelser kopplas till sysslan, inte till dagens datum. |
+| Signalen sa emot orderboken (t.ex. "Spelar ingen roll" ovanför en rad värd 2 kr). | Signalen härleds ur orderboken. I efterhandstestet: 0 motsägelser på 732 tidpunkter. |
+| Dra ner i morgon-listan gav andra tider än orderboken och kunde föreslå en tid inne i dagens dyra period. | Samma beslut som orderboken, och alla kända dyra perioder undviks. Varje råd är en hel mening ("Kör torken i dag före kl 16:00"). |
+| Ordermotorn kunde skjuta upp disken ett dygn för ett öre. | Den tidigaste starten inom max(5 öre, 2 %) av den billigaste väljs (`K.billigast`). |
+| Bilens laddfönster kunde gälla nästa kväll i stället för natten som pågår. | Bara den pågående eller kommande natten (22–07). |
+| Pristaket i egna ordrar ignorerades utan att det syntes. Bastu-ordrar blev direkt "för sent". | "Över ditt tak" visas. Egen status när bastu och ugn inte hinner inom sina tider. Dialogen kontrollerar tid och tak, godtar "1,20" och föreslår kl 21 för bastu. |
+| Positioner visade värmens "0" som ett resultat. Smart Price-länken landade inte rätt. | Värmen står som antagande i text. Länken öppnar Mer och rullar dit. |
+| Trasiga data i webbläsarens lagring kunde krascha appen. Fokus och uppläsning störde var 15:e minut. | Lagringen kontrolleras och har prefixet `elkollen:`. Ritfel skiljs från hämtfel. Fokus behålls, och bara signalordet läses upp. Remsan har fler tangenter. |
+| Notisen gav upp vid ett enda ntfy-fel. | Tre försök per notis. Ett fel stoppar inte de andra notiserna. |
+

@@ -30,6 +30,15 @@ const info = [];
 for (const tema of ['light', 'dark']) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, colorScheme: tema, locale: 'sv-SE', timezoneId: 'Europe/Stockholm' });
   await ctx.route(/^https:\/\/(www\.elprisetjustnu\.se|opendata-download-met(fcst|obs)\.smhi\.se)\//, async (route) => {
+    // Med låtsad klocka: morgondagens priser finns först efter kl 13, som i verkligheten.
+    const m = /prices\/(\d{4})\/(\d{2})-(\d{2})_/.exec(route.request().url());
+    if (m && process.env.TID) {
+      const tid = new Date(process.env.TID);
+      const lokal = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false }).formatToParts(tid);
+      const del = Object.fromEntries(lokal.map((x) => [x.type, x.value]));
+      const idag = `${del.year}-${del.month}-${del.day}`;
+      if (`${m[1]}-${m[2]}-${m[3]}` > idag && Number(del.hour) < 13) { route.fulfill({ status: 404, body: '' }); return; }
+    }
     const r = await fetch(route.request().url());
     route.fulfill({ status: r.status, body: Buffer.from(await r.arrayBuffer()), headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' } });
   });

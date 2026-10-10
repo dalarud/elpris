@@ -457,11 +457,11 @@ export function varningstext(period, kostnad, ref, idag, billigast = null) {
  * vaken och hemma – start tidigast `fran` och klar senast `klar` (ANTAGANDE).
  */
 export const SYSSLOR = [
-  { id: 'tvatt', namn: 'Tvätt', kwh: 1.0, timmar: 2, timer: true, flytta: 'Skjut upp tvätten', tidigare: 'Tvätta före' },
-  { id: 'tork', namn: 'Tork', kwh: 2.5, timmar: 2, timer: true, flytta: 'Skjut upp torken', tidigare: 'Kör torken före' },
-  { id: 'disk', namn: 'Disk', kwh: 1.0, timmar: 3, timer: true, flytta: 'Starta disken senare', tidigare: 'Diska före' },
-  { id: 'bastu', namn: 'Bastu', kwh: 7, timmar: 2, timer: false, dagtid: true, fran: 10, klar: 21, flytta: 'Vänta med bastun', tidigare: 'Basta före' },
-  { id: 'ugn', namn: 'Ugn', kwh: 1.5, timmar: 1, timer: false, dagtid: true, fran: 10, klar: 20, flytta: 'Vänta med ugnen', tidigare: 'Använd ugnen före' },
+  { id: 'tvatt', namn: 'Tvätt', bestamd: 'tvätten', verb: 'Tvätta', kwh: 1.0, timmar: 2, timer: true },
+  { id: 'tork', namn: 'Tork', bestamd: 'torken', verb: 'Kör torken', kwh: 2.5, timmar: 2, timer: true },
+  { id: 'disk', namn: 'Disk', bestamd: 'disken', verb: 'Kör disken', kwh: 1.0, timmar: 3, timer: true },
+  { id: 'bastu', namn: 'Bastu', bestamd: 'bastun', verb: 'Basta', kwh: 7, timmar: 2, timer: false, dagtid: true, fran: 10, klar: 21 },
+  { id: 'ugn', namn: 'Ugn', bestamd: 'ugnen', verb: 'Använd ugnen', kwh: 1.5, timmar: 1, timer: false, dagtid: true, fran: 10, klar: 20 },
 ];
 
 const KLOCKA_SV = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Stockholm', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -542,55 +542,85 @@ export function planera(berikade, nuMs, syssla, { maxTimmar = 24 } = {}) {
   return { nu, bast, dagAlt, sparar: nu ? nu.kr - bast.kr : 0, undvikFran: undvik ?? null, kandidater };
 }
 
+/** Ligger [startMs, slutMs) i någon av perioderna ({ startMs, slutMs })? */
+export function iPerioder(perioder, startMs, slutMs = startMs + 1) {
+  return perioder.some((p) => startMs < p.slutMs && slutMs > p.startMs);
+}
+
 /**
- * Dra ner-läge för ett dygn: konkreta saker att göra under dygnets dyra perioder
- * och vad var och en sparar. Sysslornas alternativa tid kommer från ordermotorn
- * (planera), så tiden är densamma som i När ska jag köra?. Besparingen räknas mot
- * att köra sysslan under den dyraste av perioderna.
- * Värmen: halvfart under periodens dyraste 3 timmar, tas igen de 3 timmarna efter
- * med 5 % extra energi. Alla belopp är uppskattningar.
- * delarPerDatum: { datum: forbrukningDygn(...).delar }
+ * Sänk värmen (halvfart) i högst 3 sammanhängande timmar inom perioderna och ta
+ * igen det de 3 timmarna efter med 5 % extra energi. Väljer det fönster som sparar
+ * mest. Returnerar null om det inte finns något att sänka. Uppskattning.
  */
-export function dranerAtgarder(perioder, berikade, delarPerDatum, ref, idag, nuMs) {
-  const lista = Array.isArray(perioder) ? perioder : [perioder];
-  const dyrast = lista.reduce((a, b) => (b.medelTotal > a.medelTotal ? b : a));
-  const iPeriod = (ms) => lista.some((p) => ms < Date.parse(p.slut) && ms >= Date.parse(p.start));
-  const atgarder = [];
-  for (const s of SYSSLOR) {
-    const r = planera(berikade, nuMs ?? Date.parse(dyrast.start), s);
-    // Bästa start som inte ligger i någon av dygnets dyra perioder.
-    const alt = r?.bast && !iPeriod(r.bast.startMs) ? r.bast
-      : r ? r.kandidater.filter((c) => (!s.dagtid || c.dagtid) && !iPeriod(c.startMs) && !iPeriod(c.startMs + s.timmar * 3600e3 - 1))
-        .reduce((a, b) => (!a || b.kr < a.kr ? b : a), null) : null;
-    if (!alt) continue;
-    const sparar = s.kwh * dyrast.medelTotal - alt.kr;
-    const nar = `${narOrd(alt.klocka, idag)} kl ${alt.klocka.txt}`;
-    const fore = alt.startMs < Date.parse(dyrast.start);
-    const detalj = s.timer && alt.om > 0 ? `kör ${nar} i stället – ställ ${alt.om} h` : `t.ex. ${nar} i stället`;
-    atgarder.push({ id: s.id, text: fore ? s.tidigare : s.flytta, detalj, nar, sparar, startMs: alt.startMs });
-  }
-  // Värmen: dyraste sammanhängande 3 timmarna bland dygnets perioder.
-  let bastV = null;
-  for (const p of lista) {
-    const iv = p.intervall;
+export function varmeSankning(perioder, berikade, delarPerDatum, nuMs) {
+  let bast = null;
+  for (const p of perioder) {
+    const iv = p.intervall.filter((i) => i.t0 + i.langd * 60e3 > nuMs);
     for (let a = 0; a < iv.length; a++) {
-      let kwh = 0, krV = 0, min = 0, b = a;
-      for (; b < iv.length && min < 180; b++) {
-        const d = delarPerDatum[iv[b].datum];
-        const m = Math.min(iv[b].langd, 180 - min);
+      const franMs = Math.max(iv[a].t0, nuMs);
+      let kwh = 0, kr = 0, min = 0;
+      for (let b = a; b < iv.length && min < 180; b++) {
+        const borjar = Math.max(iv[b].t0, nuMs);
+        const m = Math.min((iv[b].t0 + iv[b].langd * 60e3 - borjar) / 60e3, 180 - min);
         min += m;
+        const d = delarPerDatum[iv[b].datum];
         if (!d) continue;
         const e = d.varme[iv[b].timme] * 0.5 * m / 60;
-        kwh += e; krV += e * iv[b].total;
+        kwh += e; kr += e * iv[b].total;
       }
-      if (!bastV || krV > bastV.kr) bastV = { kwh, kr: krV, fran: iv[a], slutMs: iv[a].t0 + min * 60e3 };
+      if (kwh < 0.3) continue;
+      const slutMs = franMs + min * 60e3;
+      const efter = berikade.filter((i) => i.t0 >= slutMs).slice(0, 12);
+      if (!efter.length) continue;
+      const sparar = kr - kwh * medel(efter.map((i) => i.total)) * 1.05;
+      if (!bast || sparar > bast.sparar) bast = { datum: iv[a].datum, franMs, slutMs, kwh, sparar };
     }
   }
-  if (bastV && bastV.kwh > 0.3) {
-    const efter = berikade.filter((i) => i.t0 >= bastV.slutMs).slice(0, 12);
-    const prisEfter = efter.length ? medel(efter.map((i) => i.total)) : ref.totalMedian;
-    const hoj = lokalKlocka(bastV.slutMs);
-    atgarder.push({ id: 'varme', text: 'Sänk värmen 2 grader', detalj: `sänk kl ${hhmm(bastV.fran)}, höj igen kl ${hoj.txt} – huset håller värmen`, sparar: bastV.kr - bastV.kwh * prisEfter * 1.05 });
+  return bast && { ...bast, fran: lokalKlocka(bast.franMs), till: lokalKlocka(bast.slutMs) };
+}
+
+/**
+ * Dra ner för ett kommande dygn (notisen och "i morgon"-raden): vad som är värt att
+ * göra för att slippa dygnets dyra perioder. Samma beslut som orderboken: är det
+ * mindre än 1 kr att vinna på att vänta, och nu inte är dyrt, gäller "nu"; annars
+ * bästa tid från ordermotorn. Tider i någon känd dyr period (`undvik`, t.ex. dagens
+ * och morgondagens) undviks om det går. Besparingen räknas mot att göra det under
+ * dygnets dyraste period. Alla belopp är uppskattningar.
+ *   perioder  dygnets dyra perioder ({ startMs, slutMs, medelTotal, intervall })
+ *   undvik    alla kända dyra perioder (standard: perioder)
+ *   absolut   skriv klockslag i stället för "nu" (notisen)
+ */
+export function dranerAtgarder(perioder, berikade, delarPerDatum, ref, idag, nuMs, { undvik = perioder, absolut = false } = {}) {
+  const lista = Array.isArray(perioder) ? perioder : [perioder];
+  if (!lista.length) return [];
+  const dyrast = lista.reduce((a, b) => (b.medelTotal > a.medelTotal ? b : a));
+  const atgarder = [];
+  for (const s of SYSSLOR) {
+    const r = planera(berikade, nuMs, s);
+    if (!r?.bast) continue;
+    const langd = s.timmar * 3600e3;
+    const dyr = (c) => iPerioder(undvik, c.startMs, c.startMs + langd);
+    let alt, varning = false;
+    if (r.nu && r.sparar < GRANS_KR && !dyr(r.nu)) alt = r.nu;
+    else if (!dyr(r.bast)) alt = r.bast;
+    else {
+      alt = billigast(r.kandidater.filter((c) => (!s.dagtid || c.dagtid) && !dyr(c)));
+      if (!alt) { alt = r.bast; varning = true; }
+    }
+    // Är nu bästa tiden: "nu" i appen, "i dag" i notisen (som kan läsas senare) –
+    // med "före kl X" när det blir dyrare om man väntar.
+    const arNu = alt === r.nu && alt.startMs - nuMs < 15 * 60e3;
+    const fore = arNu && r.undvikFran ? ` före kl ${lokalKlocka(Math.floor(r.undvikFran.startMs / 900e3) * 900e3).txt}` : '';
+    const nar = arNu ? `${absolut ? narOrd(alt.klocka, idag) : 'nu'}${fore}` : `${narOrd(alt.klocka, idag)} kl ${alt.klocka.txt}`;
+    const nu = arNu;
+    const stall = s.timer && !nu && alt.om > 0 ? ` (ställ ${alt.om} h)` : '';
+    const text = `${s.verb} ${nar}${stall}${varning ? ' – dyrt även då, men minst dåligt' : ''}`;
+    atgarder.push({ id: s.id, text, nar, sparar: s.kwh * dyrast.medelTotal - alt.kr, startMs: alt.startMs });
+  }
+  const v = varmeSankning(lista, berikade, delarPerDatum, nuMs);
+  if (v) {
+    atgarder.push({ id: 'varme', text: `Sänk värmen 2 grader ${narOrd(v.fran, idag)} kl ${v.fran.txt}–${v.till.txt}`,
+      nar: `${narOrd(v.fran, idag)} kl ${v.fran.txt}`, sparar: v.sparar, startMs: v.franMs });
   }
   return atgarder.filter((a) => a.sparar >= GRANS_KR).sort((a, b) => b.sparar - a.sparar);
 }

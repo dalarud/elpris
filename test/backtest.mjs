@@ -52,7 +52,7 @@ const signaler = { 12: {}, 20: {} };
 // ANTAGANDE: så här ofta körs sysslorna per vecka (för orderbokens värde per år).
 const PER_VECKA = { tvatt: 4, tork: 3, disk: 5, bastu: 1, ugn: 4 };
 const order = Object.fromEntries(K.SYSSLOR.map((x) => [x.id, { n: 0, sparar: 0, varde1: 0 }]));
-let summaExtra = 0, summaBesparing = 0;
+let summaExtra = 0, summaBesparing = 0, motsagelser = 0;
 const planCache = {};
 const plan = (d) => (planCache[d] ??= intervallPerDag[d] ? P.dagsplan(d, intervallPerDag[d], tim, tempJkpg, inst) : null);
 const klockan = (d, h) => intervallPerDag[d]?.find((i) => i.timme === h && i.minut === 0)?.t0;
@@ -92,8 +92,14 @@ for (let idag = fran; K.laggTillDagar(idag, 1) <= sista; idag = K.laggTillDagar(
     const nuMs = klockan(idag, h);
     if (!nuMs) continue;
     const planer = [plan(idag), h >= 13 ? plan(imorgon) : null].filter(Boolean);
-    const sig = P.signal({ planer, berikade: planer.flatMap((p) => p.kvartar), nuMs, idag });
+    const berikade = planer.flatMap((p) => p.kvartar);
+    const ob = P.orderbok({ berikade, nuMs, idag, planer });
+    const sig = P.signal({ planer, berikade, nuMs, idag, orderbok: ob });
     signaler[h][sig.ord] = (signaler[h][sig.ord] ?? 0) + 1;
+    // Signalen får aldrig säga emot orderboken.
+    const rader = ob.rader.filter((r) => r.typ !== 'varme' && r.r?.nu);
+    if ((sig.ord === 'Spelar ingen roll' && rader.length) || (sig.ord === 'Kör nu' && rader[0]?.typ !== 'fore')
+      || (sig.ord === 'Vänta' && !rader.length)) motsagelser++;
   }
   // Orderboken kl 18: vad sparar varje syssla på att följa raden i stället för att köra direkt?
   const kl18 = klockan(idag, 18);
@@ -154,6 +160,8 @@ w();
 w('| Signal | kl 12 | kl 20 |');
 w('|---|---|---|');
 for (const ord of ['Dra ner', 'Vänta', 'Kör nu', 'Spelar ingen roll']) w(`| ${ord} | ${signaler[12][ord] ?? 0} | ${signaler[20][ord] ?? 0} |`);
+w();
+w(`Signalen härleds ur orderboken. Antal gånger signalen sa emot orderboken: **${motsagelser}**.`);
 w();
 w('## Orderboken: vad är raderna värda?');
 w();

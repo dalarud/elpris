@@ -237,14 +237,18 @@ test('planera: bastu föreslås aldrig mitt i natten', () => {
 test('dranerAtgarder: konkreta åtgärder sorterade efter besparing, bara de som är värda något', () => {
   const spot = new Array(24).fill(0.4); spot[17] = spot[18] = spot[19] = 3.0;
   const { ber, ref } = enDag('2026-01-14', spot);
-  const p = K.dyraPerioder(ber)[0];
+  const p0 = K.dyraPerioder(ber)[0];
+  const p = { ...p0, startMs: Date.parse(p0.start), slutMs: Date.parse(p0.slut) };
   const delar = { '2026-01-14': K.forbrukningDygn('2026-01-14', -5, inst, spot).delar };
-  const a = K.dranerAtgarder(p, ber, delar, ref, "2026-01-14", Date.parse("2026-01-14T12:00:00+01:00"));
+  const a = K.dranerAtgarder([p], ber, delar, ref, '2026-01-14', Date.parse('2026-01-14T12:00:00+01:00'));
   assert.equal(a[0].id, 'bastu');
-  assert.ok(a.some((x) => x.id === 'varme'));
   assert.ok(a.every((x, i) => i === 0 || a[i - 1].sparar >= x.sparar));
   assert.ok(a.every((x) => x.sparar >= K.GRANS_KR));
-  assert.match(a.find((x) => x.id === "varme").detalj, /sänk kl 17:00, höj igen kl 20:00/);
+  // Ingen åtgärd hamnar i den dyra perioden 17–20, och texten är en hel mening med tid.
+  assert.ok(a.filter((x) => x.id !== 'varme').every((x) => !K.iPerioder([p], x.startMs, x.startMs + 3600e3)));
+  assert.match(a.find((x) => x.id === "bastu").text, /^Basta (nu|i dag kl \d\d:\d\d)( före kl \d\d:\d\d)?$/);
+  const v = a.find((x) => x.id === 'varme');
+  assert.ok(!v || /^Sänk värmen 2 grader i dag kl 1[7-9]:\d\d–\d\d:\d\d$/.test(v.text));
 });
 
 test('planera: timermaskin i hela timmar från nu, högst 24 h fram', () => {

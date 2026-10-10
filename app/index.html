@@ -24,7 +24,8 @@
 
   <main id="innehall">
     <section class="kort laddar" id="manad"><p>Hämtar priser …</p></section>
-    <section class="kort signal" id="signal" hidden aria-live="polite"></section>
+    <section class="kort signal" id="signal" hidden></section>
+    <p class="skarmlasare" id="signal-live" aria-live="polite"></p>
     <section class="kort orderbok" id="orderbok" hidden></section>
     <section class="kort" id="dagar" hidden></section>
     <details class="kort mer" id="mer">
@@ -35,10 +36,10 @@
         <li><strong>Priset</strong> per kWh är allt du betalar: spotpris och påslag (med moms), energiskatt och elnätets överföringsavgift. Månadens kostnad räknar också med de fasta avgifterna.</li>
         <li><strong>Dagsplanen</strong> räknas en gång per dygn och jämför varje kvart med de 30 dygnen före. <em>Billigt</em> = bland de 20 % billigaste kvartarna, i minst en timme. <em>Dyrt</em> = bland de 20 % dyraste, i minst 30 minuter. <em>Normalt</em> = medianen.</li>
         <li><strong>Lugnt, svängigt, dra ner</strong>: ett dygn utan dyr period är lugnt. Har det dyra perioder är det svängigt, och dra ner om de kostar huset minst 25 kr över normalpris (räknat med normaltemperatur, så att appen och notisen alltid säger samma sak). Bara dra ner-dygn är röda och ger notis.</li>
-        <li><strong>Signalen</strong> gäller maskinerna med fördröjd start: <em>Vänta</em> om de sparar minst 1 kr på att vänta, <em>Kör nu</em> om det är billigt nu eller blir dyrare om du väntar, annars <em>Spelar ingen roll</em>.</li>
+        <li><strong>Signalen</strong> sammanfattar orderboken: <em>Vänta</em> om det som är värt mest är att vänta, <em>Kör nu</em> om det är att inte skjuta upp, <em>Spelar ingen roll</em> om ingenting är värt minst 1 kr och <em>Dra ner</em> på dra ner-dygn.</li>
         <li><strong>Orderboken</strong> prövar för varje syssla att starta nu och senare (maskiner med timer i hela timmar, övriga i kvartar), högst 24 h fram och bara med kända priser. Bastun föreslås bara kl 10–21 och ugnen kl 10–20 (antaganden). Under 1 kr skillnad spelar det ingen roll.</li>
-        <li><strong>Egna ordrar</strong> körs i bästa fönstret före din tid. Är alla priser fram till dess inte kända än väntar ordern på nästa dygns priser, om inte ett känt fönster redan klarar ditt pristak.</li>
-        <li><strong>Påminnelser</strong> skickas som ett schemalagt ntfy-meddelande (högst 3 dygn fram). Maskiner med timer som ska gå på natten påminns kvällen före.</li>
+        <li><strong>Egna ordrar</strong> körs i bästa fönstret före din tid. Är alla priser fram till dess inte kända än väntar ordern på nästa dygns priser, om inte ett känt fönster redan klarar ditt pristak. Är alla priser kända går senast-tiden före taket – då står det om priset ligger över taket.</li>
+        <li><strong>Påminnelser</strong> skickas som ett schemalagt ntfy-meddelande (högst 3 dygn fram, aldrig mellan kl 22 och 07). Maskiner med timer som ska gå på natten påminns kvällen före med exakt hur många timmar timern ska ställas på. Flyttas planen mer än en timme flyttas påminnelsen när appen är öppen.</li>
         <li>Dagar längre fram (≈) är en <strong>uppskattning</strong> från senaste priserna och SMHI:s väderprognos. I test stämde ungefär 6 av 10 varningar.</li>
         <li>Husets förbrukning är <strong>beräknad</strong> från årsförbrukningen och utetemperaturen tills du laddar upp egna mätvärden. Sysslornas kWh och längd är antaganden.</li>
       </ul>
@@ -53,8 +54,8 @@
       <label>Klar senast
         <span class="rad"><select name="dag"></select><input type="time" name="tid" step="900" required></span>
       </label>
-      <label>Högst (kr/kWh, valfritt) <input type="number" name="maxPris" min="0" step="any" inputmode="decimal"></label>
-      <p class="undertext" id="order-tips"></p>
+      <label>Vänta på billigare än (kr/kWh, valfritt) <input type="text" name="maxPris" inputmode="decimal" autocomplete="off"></label>
+      <p class="undertext" id="order-tips" aria-live="polite"></p>
       <div class="knappar">
         <button type="button" class="knapp-sekundar" id="order-avbryt">Avbryt</button>
         <button value="lagg" class="knapp">Lägg order</button>
