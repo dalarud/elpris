@@ -145,6 +145,7 @@ function ritaAllt() {
   // Behåll fokus (t.ex. på remsan) när korten ritas om var 15:e minut.
   const fokus = document.activeElement?.id;
   s.orderbok = P.orderbok({ berikade: s.berikade, nuMs: s.nu.ms, idag: s.idag, planer: s.planer });
+  s.signal = P.signal({ planer: s.planer, berikade: s.berikade, nuMs: s.nu.ms, idag: s.idag, orderbok: s.orderbok });
   visaManad(s);
   visaSignal(s);
   visaOrderbok(s);
@@ -207,7 +208,7 @@ function visaManad(s) {
 
 function visaSignal(s) {
   const { idag, nu, planer, berikade, ref, pImorgon } = s;
-  const sig = P.signal({ planer, berikade, nuMs: nu.ms, idag, orderbok: s.orderbok });
+  const sig = s.signal;
   const fran = Math.floor(nu.ms / 900e3) * 900e3;
   const syns = berikade.filter((i) => i.t0 + i.langd * 60e3 > fran);
   // Förklaringen: en rad per dygn och sort, med alla perioder som återstår.
@@ -226,14 +227,7 @@ function visaSignal(s) {
   if (!pImorgon) morgon = '<p class="morgon dampad">I morgon: priserna kommer kl 13.</p>';
   else if (planI.besked === 'lugnt') morgon = `<p class="morgon"><span class="besked-ord lugnt">Lugnt</span> i morgon ${morgonDag} – inget dyrt (${K.tal(planI.min, 2)}–${K.tal(planI.max, 2)} kr/kWh).</p>`;
   else if (planI.besked === 'svangigt') morgon = `<p class="morgon"><span class="besked-ord svangigt">Svängigt</span> i morgon ${morgonDag} – dyrt ${P.tiderText(planI.dyra)}, men det kostar huset bara ≈ ${K.kr(Math.max(0, planI.extra))} extra.</p>`;
-  else {
-    // Samma beslut som orderboken; undviker både dagens och morgondagens dyra perioder.
-    const allaDyra = planer.flatMap((p) => p.dyra).filter((p) => p.slutMs > nu.ms);
-    const atg = K.dranerAtgarder(planI.dyra, berikade, { [s.imorgon]: planI.delar }, planI.ref, idag, nu.ms, { undvik: allaDyra });
-    morgon = `<details class="morgon-draner"><summary><span class="besked-ord draner">Dra ner</span> i morgon ${P.tiderText(planI.dyra)} – huset ≈ ${K.kr(planI.extra)} över normalt</summary>
-      <ul class="enkel">${atg.map((a) => `<li><span>${esc(a.text)}</span><span class="varde">≈&nbsp;${K.kr(a.sparar)}</span></li>`).join('')}</ul>
-      <p class="undertext">Belopp mot att göra det under de dyra timmarna i morgon. Uppskattning.</p></details>`;
-  }
+  else morgon = `<p class="morgon"><span class="besked-ord draner">Dra ner</span> i morgon ${P.tiderText(planI.dyra)} – huset ≈ ${K.kr(planI.extra)} över normalt. Listan nedan tar hänsyn till det.</p>`;
   $('#signal').hidden = false;
   $('#signal').className = `kort signal ${sig.klass}`;
   $('#signal').innerHTML = `
@@ -425,7 +419,7 @@ function visaOrderbok(s) {
   const planIdag = planer[0];
   const kvar = planIdag.dyra.filter((p) => p.slutMs > nu.ms);
   const draner = planIdag.besked === 'draner' && kvar.length > 0;
-  const kvarKwh = kvar.reduce((a, p) => a + p.kwh, 0), kvarExtra = kvar.reduce((a, p) => a + p.extra, 0);
+  const { kwh: kvarKwh, extra: kvarExtra } = P.aterstar(planIdag, nu.ms);
   const rubrik = draner
     ? `<h2>Dra ner ${P.tiderText(kvar, ' · ')}</h2><p class="exponering">Huset ≈ ${K.tal(kvarKwh)} kWh under de dyra timmar som återstår i dag, ≈ ${K.kr(kvarExtra)} över normalt <span class="dampad">(beräknat)</span>. Bocka av det du gör:</p>`
     : `<div class="rubrikrad"><h2>När ska jag köra?</h2>${ob.rader.length ? `<span class="dampad">≈ ${K.kr(ob.summa)} om allt flyttas</span>` : ''}</div>`;
@@ -447,6 +441,7 @@ function visaOrderbok(s) {
     ingen.push(ob.rader.length ? `Spelar ingen roll i dag: ${P.ochLista(ob.ingenRoll)}.`
       : `Spelar ingen roll i dag – kör ${P.ochLista(ob.ingenRoll)} när det passar dig.`);
   }
+  if (ob.dyrtNu && ob.rader.some((r) => r.typ === 'fore')) ingen.unshift('Det är dyrt även nu, men dyrare senare för det som står "starta före".');
   if (ob.varmeLite) ingen.push(`Att sänka värmen ger under 1 kr${draner ? ' i dag – det är dyrt även efteråt' : ''}.`);
   if (!s.pImorgon && ob.rader.some((r) => r.typ === 'fore' && r.syssla?.timer)) ingen.push('Före kl 13 räknar listan bara med dagens priser – nattens kommer kl 13.');
 
@@ -454,26 +449,30 @@ function visaOrderbok(s) {
   const bil = P.bilFonster({ berikade: s.berikade, nuMs: nu.ms, inst });
   const bilTxt = !bil ? '' : bil.saknas ? 'Bil: nattens priser kommer kl 13.'
     : `Bil: laddboxen bör ladda ${esc(bil.txt)}${bil.sparar >= K.GRANS_KR ? ` – ≈ ${K.kr(bil.sparar)} billigare än direkt kl 18` : ''}. <span class="dampad">(antaget ${K.tal(bil.kwh, 1)} kWh)</span>`;
-  const vpPlan = kvar.length ? planIdag : planer[1];
+  // Är dagens dyra period nästan slut visas morgondagens i stället.
+  const vpPlan = kvar.length && (P.aterstar(planIdag, nu.ms).varmeKwh >= 0.5 || !planer[1]) ? planIdag : planer[1];
   const vp = P.varmepumpLage(vpPlan, nu.ms);
   const vpTxt = vp
     ? `Värmepump ostyrd: ≈ ${K.tal(vp.kwh)} av husets ${K.tal(vp.husKwh)} kWh ${vpPlan.datum === idag ? '' : 'i morgon '}${vp.tider}${vp.extra >= 0.5 ? `, ≈ ${K.kr(vp.extra)} över normalt` : ''} <span class="dampad">(beräknat)</span>.`
     : 'Värmepump ostyrd – inga dyra perioder framför dig.';
 
   // Minst tre rader syns; fler under 2 kr fälls ihop så att listan förblir kort.
+  const namnda = new Set(s.signal?.ids ?? []);
   const antal = Math.max(3, ob.rader.filter((r) => r.varde >= 2).length);
-  const synliga = ob.rader.slice(0, antal), fler = ob.rader.slice(antal);
+  let synliga = ob.rader.filter((r, i) => i < antal || namnda.has(r.id));
+  let fler = ob.rader.filter((r) => !synliga.includes(r));
+  if (fler.length < 2) { synliga = ob.rader; fler = []; }
   // Påminnelser vars rad inte längre finns (t.ex. nu "spelar ingen roll") ska gå att ta bort.
   const radNycklar = new Set([...ob.rader.map((r) => `rad:${r.id}`), ...ordrar.map((o) => `order:${o.id}`)]);
-  const lösa = aktivaPaminnelser().filter((p) => !radNycklar.has(p.nyckel));
+  const losa = aktivaPaminnelser().filter((p) => !radNycklar.has(p.nyckel));
 
   $('#orderbok').hidden = false;
   $('#orderbok').className = `kort orderbok${draner ? ' draner' : ''}`;
   $('#orderbok').innerHTML = `${rubrik}
     ${ob.rader.length ? `<ul class="orderlista">${synliga.map(rad).join('')}</ul>` : ''}
-    ${fler.length ? `<details class="fler"${flerOppen ? ' open' : ''}><summary>${fler.length} till, under 2 kr var</summary><ul class="orderlista">${fler.map(rad).join('')}</ul></details>` : ''}
+    ${fler.length ? `<details class="fler"${flerOppen ? ' open' : ''}><summary>Visa ${fler.length} till (under 2 kr var)</summary><ul class="orderlista">${fler.map(rad).join('')}</ul></details>` : ''}
     ${ingen.length ? `<p class="ingen-roll">${esc(ingen.join(' '))}</p>` : ''}
-    ${lösa.length ? `<ul class="losa">${lösa.map((p) => `<li>${esc(p.titel.replace(/^Elkollen: /, ''))}: ${paminnerTxt(p, idag)}</li>`).join('')}</ul>` : ''}
+    ${losa.length ? `<ul class="losa">${losa.map((p) => `<li>${esc(p.titel.replace(/^Elkollen: /, ''))}: ${paminnerTxt(p, idag)}</li>`).join('')}</ul>` : ''}
     <ul class="kontroll">
       ${bilTxt ? `<li>${bilTxt}</li>` : ''}
       <li>${vpTxt} <a href="#smart-price" data-oppna-mer>Smart Price ›</a></li>
@@ -522,7 +521,7 @@ function visaOrdrar(s) {
     } else if (u.status === 'utanfor-tid') status = `${stor(u.s.bestamd)} föreslås bara kl ${u.s.fran}–${u.s.klar} – välj en senare tid.`;
     else status = 'Hinner inte före din tid – ta bort ordern.';
     const tak = u.overTak && u.status !== 'vantar'
-      ? `<span class="over-tak">Över ditt tak ${K.krKwh(o.maxPris)} – det här är billigaste möjliga före din tid. Kör ändå eller ta bort ordern.</span>` : '';
+      ? `<span class="over-tak">Över ditt tak ${K.krKwh(o.maxPris)} – det här är det billigaste möjliga före din tid. Kör ändå eller ta bort ordern.</span>` : '';
     const pam = hittaPaminnelse(`order:${o.id}`);
     const som = orderSomRad(o, u);
     const p = !pam && som && inst.ntfyAmne ? paminnelseFor(som, nu.ms) : null;
@@ -548,14 +547,30 @@ function oppnaOrderdialog() {
   f.dag.innerHTML = [0, 1, 2].map((n) => { const d = K.laggTillDagar(idag, n); return `<option value="${d}">${stor(K.dagnamn(d, idag))}</option>`; }).join('');
   f.dag.value = K.laggTillDagar(idag, 1);
   f.tid.value = STANDARDTID[f.syssla.value] ?? '07:00';
-  const p25 = senast?.ref.p25;
-  const forslag = Number.isFinite(p25) ? Math.round(p25 * 20) / 20 : null;
-  f.maxPris.value = forslag === null ? '' : K.tal(forslag, 2);
-  $('#order-tips').classList.remove('fel');
-  $('#order-tips').textContent = forslag === null ? 'Lämna tomt för bästa tid utan tak.'
-    : `Förslaget ${K.krKwh(forslag)} är ungefär den nivå som en fjärdedel av kvartarna senaste 30 dygnen låg under. Lämna tomt för bästa tid utan tak.`;
+  uppdateraTak(true);
   $('#orderdialog').returnValue = '';
   $('#orderdialog').showModal();
+}
+
+/**
+ * Pristaket behövs bara när senast-tiden ligger efter de kända priserna. Är alla
+ * priser kända körs ordern på bästa tid, och ett tak skulle bara ge "över ditt tak".
+ */
+function uppdateraTak(forsta = false) {
+  const f = $('#orderform');
+  const senastMs = P.lokalMs(f.dag.value, f.tid.value);
+  const sista = senast?.berikade.at(-1);
+  const kanda = sista && senastMs <= sista.t0 + sista.langd * 60e3;
+  const p25 = senast?.ref.p25;
+  const forslag = Number.isFinite(p25) ? Math.round(p25 * 20) / 20 : null;
+  f.maxPris.disabled = Boolean(kanda);
+  if (kanda) f.maxPris.value = '';
+  else if (forsta || f.maxPris.value === '') f.maxPris.value = forslag === null ? '' : K.tal(forslag, 2);
+  $('#order-tips').classList.remove('fel');
+  $('#order-tips').textContent = kanda
+    ? 'Alla priser fram till din tid är kända – ordern körs på den billigaste tiden, inget tak behövs.'
+    : forslag === null ? 'Lämna tomt för bästa tid utan tak.'
+      : `Priserna efter de kända är okända. Förslaget ${K.krKwh(forslag)} är ungefär den nivå som en fjärdedel av kvartarna senaste 30 dygnen låg under. Lämna tomt för bästa tid utan tak.`;
 }
 
 /** Tolkar "1,20" och "1.20"; tomt = inget tak. NaN om ogiltigt. */
@@ -567,6 +582,7 @@ function tolkaPris(text) {
 
 $('#orderform').addEventListener('change', (e) => {
   if (e.target.name === 'syssla') e.currentTarget.tid.value = STANDARDTID[e.target.value] ?? '07:00';
+  if (['syssla', 'dag', 'tid'].includes(e.target.name)) uppdateraTak();
 });
 // Kontrollera ordern innan dialogen stängs; vid fel stannar den öppen med en förklaring.
 $('#orderform').addEventListener('submit', (e) => {
@@ -574,7 +590,7 @@ $('#orderform').addEventListener('submit', (e) => {
   const f = e.currentTarget;
   const s = K.SYSSLOR.find((x) => x.id === f.syssla.value);
   const senastMs = P.lokalMs(f.dag.value, f.tid.value);
-  const maxPris = tolkaPris(f.maxPris.value);
+  const maxPris = f.maxPris.disabled ? null : tolkaPris(f.maxPris.value);
   let fel = '';
   if (!Number.isFinite(senastMs)) fel = 'Välj en tid.';
   else if (senastMs - s.timmar * 3600e3 < Date.now()) fel = `${stor(s.bestamd)} tar ${s.timmar} h och hinner inte bli klar före den tiden – välj en senare tid.`;

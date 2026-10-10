@@ -179,6 +179,21 @@ test('påminnelse: sommartid ger rätt kvällstid', () => {
   assert.equal(p.nar.txt, '21:00');
 });
 
+test('signal: "Dyrt till i morgon kl 24:00" när det är dyrt hela morgondagen', () => {
+  const dyr = new Array(24).fill(4.0);
+  const sc = scen(dyr, dyr, '2026-01-14T15:00:00+01:00');
+  const s = P.signal(sc);
+  assert.equal(s.ord, 'Dra ner');
+  assert.match(s.rad, /Dyrt till i morgon kl 24:00/);
+});
+
+test('radText: korta råd med klockslag för notisen', () => {
+  const idag = new Array(24).fill(0.5); idag[17] = idag[18] = idag[19] = 3.0;
+  const ob = P.orderbok(scen(idag, null, '2026-01-14T14:00:00+01:00'));
+  const bastu = ob.rader.find((r) => r.id === 'bastu');
+  assert.match(P.radText(bastu, '2026-01-14'), /^Basta i dag före kl 1[56]:\d\d \(annars upp till ≈ \d+\u00a0kr mer\)$/);
+});
+
 test('påminnelse och lokalMs: rätt kring bytet till vintertid 25 oktober', () => {
   assert.equal(new Date(P.lokalMs('2026-10-24', '21:00')).toISOString(), '2026-10-24T19:00:00.000Z');
   assert.equal(new Date(P.lokalMs('2026-10-25', '21:00')).toISOString(), '2026-10-25T20:00:00.000Z');
@@ -241,8 +256,9 @@ test('vadOm: bastu och ugn utanför sina tider ger inget belopp', () => {
 
 test('signal och orderbok säger aldrig emot varandra (slumpade dygn)', () => {
   let fro = 7;
+  const N = 200;
   const slump = () => ((fro = (fro * 16807) % 2147483647) / 2147483647);
-  for (let n = 0; n < 60; n++) {
+  for (let n = 0; n < N; n++) {
     const idag = Array.from({ length: 24 }, () => 0.2 + 2.5 * slump());
     const imorgon = Array.from({ length: 24 }, () => 0.2 + 2.5 * slump());
     const h = 8 + Math.floor(slump() * 14);
@@ -252,6 +268,18 @@ test('signal och orderbok säger aldrig emot varandra (slumpade dygn)', () => {
     const rader = ob.rader.filter((r) => r.typ !== 'varme' && r.r?.nu);
     if (sig.ord === 'Spelar ingen roll') assert.equal(rader.length, 0);
     if (sig.ord === 'Kör nu') assert.equal(rader[0].typ, 'fore');
+    // Kör nu i en dyr kvart förklaras ("dyrt nu, men dyrare senare").
+    if (sig.ord === 'Kör nu' && sig.aktuellt.zon === 'dyr') assert.match(sig.rad, /^Dyrt nu, men dyrare senare/);
+    // "helst X, senast före Y": X ligger alltid före Y.
+    const m = /helst .*kl (\d\d:\d\d), senast före kl (\d\d:\d\d)/.exec(sig.rad);
+    if (m) {
+      const topp = rader[0];
+      assert.ok(topp.r.bast.startMs < topp.r.undvikFran.startMs, sig.rad);
+    }
+    // Varje rad som signalen nämner finns i orderboken.
+    for (const id of sig.ids ?? []) assert.ok(ob.rader.some((r) => r.id === id));
+    // Före-raders värde (risken att skjuta upp) är minst skillnaden vid gränsen.
+    for (const r of ob.rader.filter((x) => x.typ === 'fore')) assert.ok(r.varde >= r.r.undvikFran.kr - r.r.nu.kr - 1e-9);
     if (rader.length && sig.ord !== 'Dra ner') assert.notEqual(sig.ord, 'Spelar ingen roll');
   }
 });

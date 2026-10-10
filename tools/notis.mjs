@@ -73,14 +73,13 @@ export async function byggNotiser(idag, { kallor = {} } = {}) {
   const plan = P.dagsplan(imorgon, pImorgon, tim, temp, inst);
   if (plan.besked === 'draner') {
     const max = Math.max(...plan.dyra.map((p) => p.max));
-    // Samma beslut som appen: undvik både dagens och morgondagens dyra perioder.
+    // Samma råd som appens orderbok vid samma tidpunkt (kl 13:40).
     const planIdag = P.dagsplan(idag, pIdag, tim, temp, inst);
     const nuMs = beslutstid(pIdag, kallor.nuMs);
-    const allaKanda = [...planIdag.kvartar, ...plan.kvartar];
-    const undvik = [...planIdag.dyra, ...plan.dyra].filter((p) => p.slutMs > nuMs);
-    const atgarder = K.dranerAtgarder(plan.dyra, allaKanda, { [imorgon]: plan.delar }, plan.ref, idag, nuMs, { undvik, absolut: true }).slice(0, 3);
+    const planer = [planIdag, plan];
+    const ob = P.orderbok({ berikade: planer.flatMap((p) => p.kvartar), nuMs, idag, planer });
     const liten = (t) => t.charAt(0).toLowerCase() + t.slice(1);
-    const gor = atgarder.length ? ` Gör så här: ${atgarder.map((x) => `${liten(x.text)} (≈ ${K.kr(x.sparar)})`).join('; ')}.` : '';
+    const gor = ob.rader.length ? ` Gör så här: ${ob.rader.slice(0, 3).map((r) => liten(P.radText(r, idag))).join('; ')}.` : '';
     notiser.push({
       titel: `Dra ner i morgon ${P.tiderText(plan.dyra)}`,
       text: `Upp till ${K.krKwh(max)} (normalt ${K.krKwh(plan.ref.totalMedian)}). Huset ≈ ${K.kr(plan.extra)} över normalt under de dyra timmarna (beräknat).${gor}`,

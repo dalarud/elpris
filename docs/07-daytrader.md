@@ -101,12 +101,19 @@ Tre granskare (beräkningar, UX, robusthet) med var sin skeptisk verifierare hit
 |---|---|
 | Notisen räknade med 7 °C som normaltemperatur och gav ett annat besked än appen 16 dygn av 366 (7 missade dra ner-dygn på vintern och 9 falsklarm). | `lasTemp()` läser samma temperaturdata som appen. Notisen ger nu samma belopp som appen, t.ex. 65 kr för 22/9. |
 | Påminnelser för maskiner med timer kunde flyttas till mitt i natten. Texten ("ställ 4 h") räknades från när knappen trycktes, så den som följde den startade maskinen 4 timmar för sent. | `paminnelse()` skriver texten för leveranstillfället med absoluta klockslag, lägger aldrig en påminnelse kl 22–07 och flyttar den bara om planen ändras ≥ 1 h (timer) eller ≥ 30 min. Påminnelser kopplas till sysslan, inte till dagens datum. |
-| Signalen sa emot orderboken (t.ex. "Spelar ingen roll" ovanför en rad värd 2 kr). | Signalen härleds ur orderboken. I efterhandstestet: 0 motsägelser på 732 tidpunkter. |
-| Dra ner i morgon-listan gav andra tider än orderboken och kunde föreslå en tid inne i dagens dyra period. | Samma beslut som orderboken, och alla kända dyra perioder undviks. Varje råd är en hel mening ("Kör torken i dag före kl 16:00"). |
+| Signalen sa emot orderboken (t.ex. "Spelar ingen roll" ovanför en rad värd 2 kr). | Signalen härleds ur orderboken och tar bara med sysslor som går att köra nu. "Kör nu" i en dyr kvart förklaras ("Dyrt nu, men dyrare senare"), och "helst X, senast före Y" visas bara när X ligger före Y och utanför dyra perioder. Efterhandstestet kontrollerar villkoren vid 732 tidpunkter: 0 avvikelser. |
+| Dra ner i morgon-listan gav andra tider än orderboken och kunde föreslå en tid inne i dagens dyra period. | Den separata listan är borttagen (en andra kontroll visade att den fortfarande kunde avvika). Raden "Dra ner i morgon" sammanfattar, och råden står bara i orderboken, som räknar med alla kända priser. Notisen använder orderbokens rader vid kl 13:40, med klockslag och vad det kan kosta att vänta ("basta i dag före kl 15:30 (annars upp till ≈ 14 kr mer)"). |
 | Ordermotorn kunde skjuta upp disken ett dygn för ett öre. | Den tidigaste starten inom max(5 öre, 2 %) av den billigaste väljs (`K.billigast`). |
 | Bilens laddfönster kunde gälla nästa kväll i stället för natten som pågår. | Bara den pågående eller kommande natten (22–07). |
 | Pristaket i egna ordrar ignorerades utan att det syntes. Bastu-ordrar blev direkt "för sent". | "Över ditt tak" visas. Egen status när bastu och ugn inte hinner inom sina tider. Dialogen kontrollerar tid och tak, godtar "1,20" och föreslår kl 21 för bastu. |
 | Positioner visade värmens "0" som ett resultat. Smart Price-länken landade inte rätt. | Värmen står som antagande i text. Länken öppnar Mer och rullar dit. |
 | Trasiga data i webbläsarens lagring kunde krascha appen. Fokus och uppläsning störde var 15:e minut. | Lagringen kontrolleras och har prefixet `elkollen:`. Ritfel skiljs från hämtfel. Fokus behålls, och bara signalordet läses upp. Remsan har fler tangenter. |
 | Notisen gav upp vid ett enda ntfy-fel. | Tre försök per notis. Ett fel stoppar inte de andra notiserna. |
+
+En andra kontroll av rättningarna (en av fyra granskare hann klart innan kvotgränsen) hittade bland annat följande, som också är rättat:
+- "Dyrt till i morgon kl 00:00" när det var dyrt hela morgondagen. Nu står det "kl 24:00".
+- Rubriken på dra ner-dygn räknade hela periodernas kWh. Nu räknas bara det som återstår.
+- Värdet på "starta före"-rader visade bara skillnaden vid gränsen. Nu visas spannet, t.ex. "efter kl 05:30 3–6 kr dyrare", och det högre beloppet räknas.
+- Ihopfällningen dolde ibland en rad som signalen nämnde. Nu fälls bara minst två rader ihop, och aldrig en som signalen nämner.
+- Orderdialogen föreslog ett pristak även när alla priser fram till senast-tiden var kända, och gav sedan "över ditt tak". Nu används taket bara när det behövs.
 
