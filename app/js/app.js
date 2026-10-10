@@ -371,7 +371,9 @@ function visaOrderbok(s) {
 
   // Kontrollrader: bilen och värmepumpen.
   const bil = P.bilFonster({ berikade: s.berikade, nuMs: nu.ms, idag, inst });
-  const bilTxt = !s.pImorgon && K.lokalKlocka(nu.ms).timme >= 7
+  // Utan morgondagens priser är bara natten som pågår (före kl 07) känd.
+  const bilKand = bil?.bast && (s.pImorgon || (bil.bast.klocka.datum === idag && bil.bast.klocka.timme < 7));
+  const bilTxt = !bilKand && !s.pImorgon
     ? 'Bil: nattens priser kommer kl 13.'
     : bil?.bast ? `Bil: laddboxen bör ladda ${esc(bil.txt)}${bil.sparar >= K.GRANS_KR ? ` – ≈ ${K.kr(bil.sparar)} billigare än direkt kl 18` : ''}. <span class="dampad">(antaget ${K.tal(bil.kwh, 1)} kWh)</span>`
       : 'Bil: inget nattfönster inom de kända priserna.';

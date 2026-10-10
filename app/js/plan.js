@@ -109,6 +109,8 @@ export function tiderText(perioder, sep = ' och ') {
 // --------------------------------------------------------------- signalen ----
 
 const nar = (c, idag) => `${K.narOrd(c.klocka, idag)} kl ${c.klocka.txt}`;
+/** "Starta före kl X": avrundat nedåt till hel kvart (timermaskiner prövas från nu, t.ex. 16:46). */
+const foreKl = (c) => K.lokalKlocka(Math.floor(c.startMs / 900e3) * 900e3).txt;
 
 /**
  * Ett ord nu. Prövas i ordning:
@@ -144,7 +146,7 @@ export function signal({ planer, berikade, nuMs, idag }) {
   const undvik = maskiner.map((x) => x.r.undvikFran).filter(Boolean).sort((a, b) => a.startMs - b.startMs)[0];
   if (billigNu || undvik) {
     return { ord: 'Kör nu', klass: 'kor', aktuellt,
-      rad: billigNu ? `Billigt till kl ${billigNu.tillTxt}.` : `Starta maskinerna före kl ${undvik.klocka.txt} – sedan blir det dyrare.` };
+      rad: billigNu ? `Billigt till kl ${billigNu.tillTxt}.` : `Starta maskinerna före kl ${foreKl(undvik)} – sedan blir det dyrare.` };
   }
   return { ord: 'Spelar ingen roll', klass: 'neutral', aktuellt, rad: 'Ingen skillnad värd att planera efter just nu.' };
 }
@@ -175,12 +177,12 @@ export function orderbok({ berikade, nuMs, idag, planer, inst }) {
       }
       if (r.dagAlt) detalj.push(`Hellre på dagen? ${stor(nar(r.dagAlt, idag))}: ${K.kr2(r.dagAlt.kr)} (${K.tal(Math.max(0, r.dagAlt.kr - r.bast.kr) * 100)} öre mer).`);
       if (!s.timer && r.undvikFran && r.undvikFran.klocka.datum === idag && r.undvikFran.startMs < r.bast.startMs) {
-        detalj.push(`Ska det bli i dag: starta före kl ${r.undvikFran.klocka.txt}.`);
+        detalj.push(`Ska det bli i dag: starta före kl ${foreKl(r.undvikFran)}.`);
       }
       rader.push({ id: s.id, namn: s.namn, huvud, detalj, varde: sparar, startMs: r.bast.startMs, syssla: s, r, typ: 'vanta' });
     } else if (r.undvikFran && r.nu) {
       const varde = r.undvikFran.kr - r.nu.kr;
-      rader.push({ id: s.id, namn: s.namn, huvud: `starta före kl ${r.undvikFran.klocka.txt}`,
+      rader.push({ id: s.id, namn: s.namn, huvud: `starta före kl ${foreKl(r.undvikFran)}`,
         detalj: [`${K.kr2(r.nu.kr)} nu, sedan ≈ ${K.kr2(varde)} dyrare`], varde, startMs: r.nu.startMs, syssla: s, r, typ: 'fore' });
     } else {
       ingenRoll.push(s.namn.toLowerCase());
