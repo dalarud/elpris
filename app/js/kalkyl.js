@@ -499,6 +499,17 @@ export const GRANS_KR = 1;
 export const DAG_START = 7;
 export const KLAR_SENAST = 21;
 
+/**
+ * Billigaste kandidaten ({ startMs, kr }), men den tidigaste som kostar högst
+ * 5 öre eller 2 % mer än den billigaste – ingen skjuts upp ett dygn för ett öre.
+ */
+export function billigast(lista) {
+  if (!lista.length) return null;
+  const m = Math.min(...lista.map((c) => c.kr));
+  const tol = Math.max(0.05, 0.02 * Math.abs(m));
+  return lista.filter((c) => c.kr <= m + tol).reduce((a, b) => (b.startMs < a.startMs ? b : a));
+}
+
 export function planera(berikade, nuMs, syssla, { maxTimmar = 24 } = {}) {
   const steg = syssla.timer ? 3600e3 : 900e3;
   const forsta = syssla.timer ? nuMs : Math.ceil(nuMs / 900e3) * 900e3;
@@ -512,7 +523,7 @@ export function planera(berikade, nuMs, syssla, { maxTimmar = 24 } = {}) {
     kandidater.push({ startMs: t, om: Math.round((t - nuMs) / 3600e3), kr, klocka, slut, dagtid });
   }
   if (!kandidater.length) return null;
-  const minst = (l) => l.reduce((a, b) => (b.kr < a.kr - 1e-9 ? b : a), l[0]);
+  const minst = billigast;
   const tillatna = syssla.dagtid ? kandidater.filter((c) => c.dagtid) : kandidater;
   // "Nu" för bastu och ugn utanför dagtid finns inte – jämför då mot första tillåtna start.
   const nu = syssla.dagtid ? (kandidater[0].dagtid ? kandidater[0] : null) : kandidater[0];

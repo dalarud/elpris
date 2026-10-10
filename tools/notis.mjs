@@ -26,15 +26,25 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const inst = { ...K.STANDARD };
 const FORVARNING_DYGN = 3;
+const vanta = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function lasJson(fil) {
-  try { return JSON.parse(readFileSync(join(ROT, 'app', 'data', fil), 'utf8')).dagar; } catch { return {}; }
+/** Dygnsdata (`.dagar`) ur en av appens förberäknade filer i app/data/. */
+function lasDagar(fil) {
+  try { return JSON.parse(readFileSync(join(ROT, 'app', 'data', fil), 'utf8')).dagar ?? {}; } catch { return {}; }
+}
+
+/**
+ * Uppmätt temperatur i Jönköping: filen (fyra år bakåt, behövs för normaltemperaturen)
+ * plus SMHI:s senaste månader. Samma källor som appen, så att dagsplanen blir densamma.
+ */
+export async function lasTemp() {
+  return { ...lasDagar('temp_jonkoping.json'), ...(await tempHistorik().catch(() => ({}))) };
 }
 
 /** Timpriser senaste 35 dygnen: förberäknad fil först, bara det som saknas hämtas. */
 async function historikMedFil(idag) {
   const fran = K.laggTillDagar(idag, -35), till = K.laggTillDagar(idag, -1);
-  return timprisHistorik(fran, till, inst.elomrade, idag, { forladdat: lasJson(`priser_${inst.elomrade}.json`), maxHamtningar: 40 });
+  return timprisHistorik(fran, till, inst.elomrade, idag, { forladdat: lasDagar(`priser_${inst.elomrade}.json`), maxHamtningar: 40 });
 }
 
 /** När notisen räknas: nu, eller kl 13:40 det simulerade dygnet om nu ligger utanför dess priser. */
@@ -55,7 +65,7 @@ export async function byggNotiser(idag, { kallor = {} } = {}) {
   tim[imorgon] = K.timpriser(pImorgon);
   const ref = K.referens(K.posterFranTimpriser(tim, K.laggTillDagar(idag, -30), K.laggTillDagar(idag, -1)), inst);
   const vader = kallor.vader ?? await vaderprognos(inst.plats).catch(() => ({ hem: {}, modell: {} }));
-  const temp = kallor.temp ?? { ...(lasJson('temp_jonkoping.json').dagar ?? {}), ...(await tempHistorik().catch(() => ({}))) };
+  const temp = kallor.temp ?? await lasTemp();
   const tempFor = (d) => K.valjTemp(d, temp, vader.hem);
 
   const notiser = [];
@@ -105,9 +115,20 @@ async function skicka(n) {
   // JSON-publicering klarar å, ä och ö (HTTP-huvuden gör det inte).
   const kropp = { topic, title: n.titel, message: n.text, priority: n.prioritet, tags: [n.taggar] };
   if (process.env.APP_URL) kropp.click = process.env.APP_URL;
-  const r = await fetch(server, { method: 'POST', body: JSON.stringify(kropp), headers: { 'Content-Type': 'application/json' } });
-  if (!r.ok) throw new Error(`ntfy svarade ${r.status}`);
-  console.log(`Skickad: ${n.titel}`);
+  // Tre försök vid nätverksfel, 429 och 5xx (30 s, 2 min) innan notisen ges upp.
+  const pauser = [30e3, 120e3];
+  for (let forsok = 0; ; forsok++) {
+    let fel;
+    try {
+      const r = await fetch(server, { method: 'POST', body: JSON.stringify(kropp), headers: { 'Content-Type': 'application/json' } });
+      if (r.ok) { console.log(`Skickad: ${n.titel}`); return; }
+      fel = new Error(`ntfy svarade ${r.status}`);
+      if (r.status !== 429 && r.status < 500) throw fel;
+    } catch (e) { fel = e; if (/svarade 4\d\d/.test(e.message) && !/429/.test(e.message)) throw e; }
+    if (forsok >= pauser.length) throw fel;
+    console.log(`${fel.message} – försöker igen om ${pauser[forsok] / 1000} s.`);
+    await vanta(pauser[forsok]);
+  }
 }
 
 /** 'GMT+2' på sommartid, 'GMT+1' på vintertid. */
@@ -138,7 +159,6 @@ function lasDatum(argv) {
   return d;
 }
 
-const vanta = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Körs filen direkt (inte importerad)? Jämför verkliga sökvägar (symlänkar, mellanslag). */
 function arHuvudmodul() {
@@ -172,5 +192,11 @@ if (arHuvudmodul()) {
     // Rött jobb bara när en schemalagd körning gett upp; en testkörning före kl 13 är inget fel.
     if (schemalagd) { console.log('::error::Morgondagens priser kunde inte hämtas inom en timme.'); process.exitCode = 1; }
   } else if (!res.notiser.length) console.log(`Inga varningar (normalt ${K.krKwh(res.ref.totalMedian)}).`);
-  for (const n of res.notiser) await skicka(n);
+  // Ett fel på en notis stoppar inte de andra; jobbet blir rött om någon inte gick fram.
+  for (const n of res.notiser) {
+    try { await skicka(n); } catch (e) {
+      console.log(`::error::Notisen "${n.titel}" kunde inte skickas (${e.message}).`);
+      process.exitCode = 1;
+    }
+  }
 }
