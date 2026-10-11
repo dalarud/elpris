@@ -7,7 +7,7 @@ En svensk webbapp som hjälper ett hushåll att **använda el när den är billi
 - **Orderboken:** en rad per syssla (tvätt, tork, disk, bastu, ugn, värme) sorterad efter kronor, till exempel "Tork: ställ 13 h → start i natt 03:30 · ≈ 3,70 kr". På dra ner-dygn visar den husets exponering och blir en checklista.
 - **Bil och värmepump** som kontrollrader: när laddboxen bör ladda, och vad den ostyrda värmepumpen drar under de dyra timmarna.
 - **Egna ordrar:** "torken klar före lördag 07, högst 1,20 kr/kWh". Appen räknar ut när den ska köras.
-- **Påminnelser:** klockknapp per rad. Du får en ntfy-notis vid rätt tid, eller kvällen före om timern ska ställas.
+- **Påminnelser:** klockknapp per rad. Du får en ntfy-notis vid rätt tid, eller kvällen före om timern ska ställas. Ändras rådet så att den gamla tiden kostar minst 1 kr mer flyttas påminnelsen.
 - **Kommande dagar:** kronor per dygn upp till 5 dygn fram. Tryck på ett dygn för detaljer.
 - **Notis i mobilen** kl 13:40 dagen före ett dra ner-dygn, ungefär 1,3 gånger i veckan i snitt (fler på vintern).
 
@@ -53,7 +53,7 @@ Ladda ner förbrukningen per timme eller kvart från Jönköping Energis Mina si
 
 - **Totalpris** = (spotpris + påslag) × 1,25 + energiskatt 45 öre + överföringsavgift. Fasta avgifter ingår i dygns- och månadskostnaderna.
 - **Dagsplanen** jämför varje kvart med de 30 dygnen före dygnet. *Billigt* = bland de 20 % billigaste kvartarna (minst 1 h), *dyrt* = bland de 20 % dyraste (minst 30 min), *normalt* = medianen. Dygnet blir *lugnt*, *svängigt* eller *dra ner*. Dra ner gäller när de dyra perioderna kostar huset minst 25 kr över normalt (går att ändra), och bara då skickas notis.
-- **Orderboken** prövar varje syssla nu och senare inom de kända priserna (högst 24 h fram). Under 1 kr skillnad står det "spelar ingen roll".
+- **Orderboken** prövar varje syssla nu och senare inom de kända priserna (högst 24 h fram). Under 1 kr skillnad står det "spelar ingen roll". En tid mer än 12 h bort föreslås bara om den är minst 25 öre eller 10 % billigare än den bästa tiden inom 12 h.
 - **Förbrukning** beräknas från årsförbrukningen. Värmedelen följer utetemperaturen och laddhybriden laddas nattens billigaste timmar. Uppmätta värden ersätter beräkningen.
 - **Prisuppskattning** 2–5 dygn: senast kända pris justerat för temperatur, vind och helg ([modell och utvärdering](analys/resultat_prismodell.md)).
 

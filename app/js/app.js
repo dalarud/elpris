@@ -14,6 +14,9 @@ import { tolkaMatvarden } from './import.js';
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const stor = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+/** Bryt inte raden mitt i "kl 15:45", "ställ 9 h", "≈ 2 kr" eller "15:45–23:00". */
+const ihop = (t) => String(t).replace(/kl (\d)/g, 'kl\u00a0$1').replace(/(\d) h\b/g, '$1\u00a0h')
+  .replace(/≈ /g, '≈\u00a0').replace(/(\d\d:\d\d)–(\d\d:\d\d)/g, '$1\u2060–\u2060$2');
 const MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
 const KORT_DAG = ['mån', 'tis', 'ons', 'tor', 'fre', 'lör', 'sön'];
 const KLOCKA = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1z"/></svg>';
@@ -251,7 +254,7 @@ function visaSignal(s) {
   $('#signal').innerHTML = `
     <div class="signal-rad"><span class="signal-ord ${sig.klass}">${esc(sig.ord)}</span>
       <span class="signal-pris">nu <strong>${K.krKwh(sig.aktuellt.total)}</strong><span class="dampad"> · normalt ${K.krKwh(ref.totalMedian)}</span></span></div>
-    <p class="signal-text">${esc(sig.rad)}</p>
+    <p class="signal-text">${esc(ihop(sig.rad))}</p>
     ${remsa(syns, fran, planer)}
     <p class="forklaring">${forklaring.join('') || '<span class="dampad">Inga dyra eller billiga perioder framför dig.</span>'}</p>
     <div id="vadom" aria-live="polite">${vadOmText(s)}</div>
@@ -424,7 +427,7 @@ document.addEventListener('toggle', (e) => {
 function paminnelseFor(r, nuMs) {
   if (!r?.startMs) return null;
   return P.paminnelse({ namn: r.namn, bestamd: r.syssla?.bestamd, startMs: r.startMs, slutMs: r.slutMs ?? null,
-    timer: Boolean(r.syssla?.timer) && r.typ === 'vanta', typ: r.typ === 'varme-imorgon' ? 'varme' : r.typ, eller: r.ellerNar ?? null }, nuMs);
+    timer: Boolean(r.syssla?.timer) && r.typ === 'vanta', typ: r.typ === 'varme-imorgon' ? 'varme' : r.typ, ellerMs: r.ellerMs ?? null }, nuMs);
 }
 
 const aktivaPaminnelser = () => Object.values(paminnelser).filter((p) => p.narMs > Date.now());
@@ -438,9 +441,9 @@ function visaOrderbok(s) {
   const kvar = planIdag.dyra.filter((p) => p.slutMs > nu.ms);
   const draner = planIdag.besked === 'draner' && kvar.length > 0;
   const { extra: kvarExtra } = P.aterstar(planIdag, nu.ms);
-  const vanta = s.signal?.dyrtTill ? ` Det som kan vänta bör vänta till efter ${s.signal.dyrtTill}.` : '';
+  // Perioden står redan i signalen – här bara vad den kostar och vad du kan göra.
   const rubrik = draner
-    ? `<h2>Dra ner ${P.tiderText(kvar, ' · ')}</h2><p class="exponering">≈ ${K.kr(kvarExtra)} över normalt för huset under det som återstår <span class="dampad">(beräknat)</span>.${vanta}${ob.rader.length ? ' Bocka av det du gör:' : ''}</p>`
+    ? `<h2>Dra ner</h2><p class="exponering">≈ ${K.kr(kvarExtra)} över normalt för huset under det som återstår <span class="dampad">(beräknat)</span>.${ob.rader.length ? ' Bocka av det du gör:' : ''}</p>`
     : `<div class="rubrikrad"><h2>När ska jag köra?</h2>${ob.rader.length ? `<span class="dampad">≈ ${K.kr(ob.summa)} att vinna</span>` : ''}</div>`;
   const rad = (r) => {
     const nyckel = `${idag}:${r.id}`;
@@ -448,28 +451,32 @@ function visaOrderbok(s) {
     const p = pam ? null : paminnelseFor(r, nu.ms);
     return `<li class="order-rad">
       <input type="checkbox" data-bock="${esc(r.id)}" aria-label="${esc(r.namn)} gjort"${journal[nyckel] ? ' checked' : ''}>
-      <div class="rad-text"><span><strong>${esc(r.namn)}</strong> ${esc(r.huvud)}</span>
-        ${r.detalj.map((d) => `<span class="dampad">${esc(d)}</span>`).join('')}
-        ${pam ? paminnerTxt(pam, idag) : ''}</div>
+      <div class="rad-text"><span><strong>${esc(r.namn)}</strong> ${esc(ihop(r.huvud))}</span>
+        ${r.detalj.map((d) => `<span class="dampad">${esc(ihop(d))}</span>`).join('')}
+        ${pam ? paminnerTxt(pam, idag) : pamNot[`rad:${r.id}`] ? `<span class="paminner">${esc(pamNot[`rad:${r.id}`])}</span>` : ''}</div>
       <span class="varde">≈&nbsp;${K.kr(r.varde)}</span>
       ${p ? klockKnapp('data-pamin', r.id, p, r.namn.toLowerCase(), idag) : '<span></span>'}
     </li>`;
   };
   const ingen = [];
-  // Minst tre rader syns; fler under 2 kr fälls ihop så att listan förblir kort.
-  const namnda = new Set(s.signal?.ids ?? []);
-  const antal = Math.max(3, ob.rader.filter((r) => Math.round(r.varde) >= 2).length);
-  let synliga = ob.rader.filter((r, i) => i < antal || namnda.has(r.id));
+  // Rader värda ≈ 2 kr eller mer syns, liksom de signalen nämner, dagens värmeråd på
+  // ett dra ner-dygn och "starta före" som kan kosta ≈ 5 kr mer eller värre. Resten
+  // (≈ 1 kr var) fälls ihop – men bara om något syns och minst två fälls ihop.
+  const namnda = new Set([...(s.signal?.ids ?? []), ...(draner ? ['varme'] : [])]);
+  let synliga = ob.rader.filter((r) => Math.round(r.varde) >= 2 || namnda.has(r.id) || Math.round(r.varst ?? 0) >= 5);
   let fler = ob.rader.filter((r) => !synliga.includes(r));
-  if (fler.length < 2) { synliga = ob.rader; fler = []; }
+  if (!synliga.length || fler.length < 2) { synliga = ob.rader; fler = []; }
   if (ob.ingenRoll.length) {
-    ingen.push(ob.rader.length ? `Spelar ingen roll i dag: ${P.ochLista(ob.ingenRoll)}.`
-      : `Spelar ingen roll i dag – kör ${P.ochLista(ob.ingenRoll)} när det passar dig.`);
+    ingen.push(!ob.rader.length ? `Spelar ingen roll i dag – kör ${P.ochLista(ob.ingenRoll)} när det passar dig.`
+      : draner ? `Ungefär lika dyrt när du än kör: ${P.ochLista(ob.ingenRoll)}.`
+        : `Spelar ingen roll i dag: ${P.ochLista(ob.ingenRoll)}.`);
   }
-  if (ob.dyrtNu && synliga.some((r) => r.typ === 'fore')) ingen.unshift('Det är dyrt nu också, men ännu dyrare senare för raderna "starta före".');
+  if (draner && ob.dyrtNu && synliga.some((r) => r.typ === 'fore' && !r.helstHuvud)) ingen.unshift('Det är dyrt nu också, men ännu dyrare senare för raderna "starta före".');
   if (!ob.rader.length && draner) ingen.unshift('Inget att flytta – det mesta är värmepumpen.');
   if (ob.varmeLite) ingen.push(`Att sänka värmen ger under 1 kr${draner ? ' i dag – det är dyrt även efteråt' : ''}.`);
-  if (!s.pImorgon && ob.rader.some((r) => r.typ === 'fore' && r.syssla?.timer)) ingen.push('Före kl 13 räknar listan bara med dagens priser – nattens kommer kl 13.');
+  if (ob.utanMorgon && ob.rader.some((r) => r.typ === 'fore')) {
+    ingen.push(`Listan räknar bara med de kända priserna – morgondagens ${nu.timme < 13 ? 'kommer kl 13' : 'är inte publicerade än'} och kan ge en billigare tid.`);
+  }
 
   // Kontrollrader: bilen och värmepumpen.
   const bil = P.bilFonster({ berikade: s.berikade, nuMs: nu.ms, inst });
@@ -552,7 +559,7 @@ function visaOrdrar(s) {
       <input type="checkbox" data-order-klar="${esc(o.id)}" aria-label="${esc(u.s.namn)} gjort">
       <div class="rad-text"><span><strong>${esc(u.s.namn)}</strong> <span class="dampad">${esc(villkor)}</span></span>
         <span>${status}</span>${tak}
-        ${pam ? paminnerTxt(pam, idag) : ''}</div>
+        ${pam ? paminnerTxt(pam, idag) : pamNot[`order:${o.id}`] ? `<span class="paminner">${esc(pamNot[`order:${o.id}`])}</span>` : ''}</div>
       <button type="button" class="knapp-ikon liten" data-order-bort="${esc(o.id)}" aria-label="Ta bort ordern" title="Ta bort ordern">✕</button>
       ${p ? klockKnapp('data-pamin-order', o.id, p, u.s.namn.toLowerCase(), idag) : '<span></span>'}
     </li>`;
@@ -679,6 +686,7 @@ document.addEventListener('change', (e) => {
 // med påminnelsen, så att den går att ta bort även om ämnet byts.
 
 let vantandePaminnelse = null;   // klockan trycktes innan ntfy-ämnet fanns
+const pamNot = {};               // nyckel → varför synken tog bort påminnelsen (visas i raden)
 
 async function ntfy(metod, server, vag, kropp) {
   const r = await fetch(`${(server || 'https://ntfy.sh').replace(/\/$/, '')}${vag}`,
@@ -720,10 +728,20 @@ async function avbrytPaminnelse(nyckel) {
 }
 
 /**
- * Om planen ändrats mycket sedan påminnelsen lades flyttas den (samma sekvens
- * ersätter den gamla). Små förskjutningar (timermaskiner prövas från "nu") och
- * påminnelser som ska gå inom 10 minuter rörs inte. Blir det ingen giltig tid
- * längre tas påminnelsen bort hellre än att den flyttas till natten.
+ * Vad kostar det att följa en påminnelse (eller en rad)? "Starta före X" följs när
+ * påminnelsen kommer (X − 30 min), övriga vid starttiden. null om det inte går att räkna.
+ */
+function foljKr(berikade, syssla, typ, startMs) {
+  if (!syssla || typ === 'varme') return null;
+  return K.fonsterKostnad(berikade, typ === 'fore' ? startMs - 30 * 60e3 : startMs, syssla.timmar, syssla.kwh);
+}
+
+/**
+ * Flyttar en påminnelse (samma sekvens ersätter den gamla hos ntfy) bara när det
+ * kostar minst GRANS_KR mer att följa den gamla än radens råd nu – även när raden
+ * bytt sort (t.ex. "starta före" som blivit "vänta"). Värmeråd flyttas om tiden
+ * ändrats minst 30 min. Påminnelser som ska gå inom 10 minuter rörs inte. Finns
+ * ingen giltig tid för det nya rådet tas en påminnelse som blivit dyr att följa bort.
  */
 async function synkaPaminnelser(s) {
   const nuMs = Date.now();
@@ -736,16 +754,25 @@ async function synkaPaminnelser(s) {
   }
   for (const pam of Object.values(paminnelser)) {
     const r = rader.get(pam.nyckel);
-    // Ingen rad, annan sorts rad (t.ex. "vänta" som blivit "starta före") eller snart dags:
-    // behåll påminnelsen som den är – planen den gäller är fortfarande en bra tid.
-    if (!r || (pam.typ && r.typ !== pam.typ) || pam.narMs < nuMs + 10 * 60e3) continue;
-    const grans = r.syssla?.timer ? 60 * 60e3 : 30 * 60e3;
-    if (Math.abs(pam.startMs - r.startMs) < grans) continue;
+    // Ingen rad (t.ex. "spelar ingen roll" nu) eller snart dags: behåll påminnelsen.
+    if (!r || pam.narMs < nuMs + 10 * 60e3) continue;
+    let flytta;
+    if (r.typ === 'varme' || pam.typ === 'varme') flytta = r.typ === pam.typ && Math.abs(pam.startMs - r.startMs) >= 30 * 60e3;
+    else {
+      const gammal = foljKr(s.berikade, r.syssla, pam.typ ?? r.typ, pam.startMs);
+      const ny = foljKr(s.berikade, r.syssla, r.typ, r.startMs);
+      flytta = gammal !== null && ny !== null && gammal - ny >= K.GRANS_KR;
+    }
+    if (!flytta) continue;
     const p = paminnelseFor(r, nuMs);
-    if (!p) continue;
     try {
-      await ntfy('POST', pam.server, '/', P.ntfyKropp(pam.amne, pam.sekvens, pam.titel, p, location.href.split('#')[0]));
-      Object.assign(pam, { narMs: p.narMs, startMs: r.startMs });
+      if (p) {
+        await ntfy('POST', pam.server, '/', P.ntfyKropp(pam.amne, pam.sekvens, pam.titel, p, location.href.split('#')[0]));
+        Object.assign(pam, { narMs: p.narMs, startMs: r.startMs, typ: r.typ });
+        delete pamNot[pam.nyckel];
+      } else if (await avbrytPaminnelse(pam.nyckel)) {
+        pamNot[pam.nyckel] = 'Påminnelsen togs bort – rådet har ändrats, se raden.';
+      }
       andrat = true;
     } catch { /* försök igen vid nästa uppdatering */ }
   }

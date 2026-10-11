@@ -196,6 +196,9 @@ test('radText: korta råd med klockslag för notisen', () => {
   const imorgon = new Array(24).fill(1.0); imorgon[2] = imorgon[3] = 0.1;
   const ob2 = P.orderbok(scen(new Array(24).fill(1.0), imorgon, '2026-01-14T13:40:00+01:00'));
   for (const r of ob2.rader) assert.doesNotMatch(P.radText(r), /ställ \d+ h|\bnu\b/);
+  // Klockslagen i notisen är hela kvartar, även för timermaskiner (13:40 + 12 h → 01:45).
+  for (const r of ob2.rader) for (const t of P.radText(r).match(/\d\d:\d\d/g) ?? []) assert.match(t, /:(00|15|30|45)$/);
+  assert.ok(ob2.rader.some((r) => r.syssla?.timer && r.typ === 'vanta'));
 });
 
 test('påminnelse och lokalMs: rätt kring bytet till vintertid 25 oktober', () => {
@@ -292,8 +295,12 @@ test('påminnelse: timerstart kl 07:00 påminns kvällen före; före-rad med "e
   const p = P.paminnelse({ namn: 'Tork', bestamd: 'torken', startMs: Date.parse('2026-01-15T07:00:00+01:00'), timer: true }, Date.parse('2026-01-14T15:00:00+01:00'));
   assert.equal(p.nar.txt, '21:00');
   assert.match(p.meddelande, /fördröjd start 10 h nu \(kl 21:00\)/);
-  const f = P.paminnelse({ namn: 'Tork', bestamd: 'torken', startMs: Date.parse('2026-01-14T16:00:00+01:00'), typ: 'fore', eller: 'i natt kl 01:00' }, Date.parse('2026-01-14T14:00:00+01:00'));
+  const f = P.paminnelse({ namn: 'Tork', bestamd: 'torken', startMs: Date.parse('2026-01-14T16:00:00+01:00'), typ: 'fore', ellerMs: Date.parse('2026-01-15T01:00:00+01:00') }, Date.parse('2026-01-14T14:00:00+01:00'));
   assert.equal(f.meddelande, 'Starta torken före kl 16:00 eller vänta till i natt kl 01:00 – däremellan är det dyrare.');
+  // Trycks kl 20, kommer fram nästa morgon: "eller" samma kväll heter "i kväll", inte "i morgon".
+  const g = P.paminnelse({ namn: 'Tork', bestamd: 'torken', startMs: Date.parse('2025-10-23T07:45:00+02:00'), typ: 'fore', ellerMs: Date.parse('2025-10-23T20:00:00+02:00') }, Date.parse('2025-10-22T20:00:00+02:00'));
+  assert.equal(g.nar.txt, '07:15');
+  assert.equal(g.meddelande, 'Starta torken före kl 07:45 eller vänta till i kväll kl 20:00 – däremellan är det dyrare.');
 });
 
 test('planera: gränsen "starta före" för timermaskiner räknas i kvartar', () => {

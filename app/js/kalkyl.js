@@ -492,7 +492,8 @@ export function fonsterKostnad(berikade, startMs, timmar, kwh) {
  *  - Högst `maxTimmar` fram (24 h) och bara så långt priserna är kända.
  *  - Dagtid-sysslor (bastu, ugn) startar tidigast `fran` och är klara senast `klar`;
  *    för övriga maskiner är "dagtid" (för dagtidsalternativet) 07–21.
- *  - Under GRANS_KR (1 kr) är skillnaden inte värd att planera efter.
+ *  - Under GRANS_KR (1 kr) är skillnaden inte värd att planera efter, och ingen
+ *    start mer än 12 h bort väljs för under 25 öre eller 10 % (bastaStart).
  * Returnerar null om inga priser finns. Belopp i kr, alla uppskattningar.
  */
 export const GRANS_KR = 1;
@@ -510,6 +511,30 @@ export function billigast(lista) {
   return lista.filter((c) => c.kr <= m + tol).reduce((a, b) => (b.startMs < a.startMs ? b : a));
 }
 
+/**
+ * Starter som inte skjuter upp i onödan: en start minst 12 h bort tas bort om en
+ * start minst 12 h tidigare – eller inom de första 12 timmarna – kostar högst 25 öre
+ * eller 10 % mer (samma gräns som dagtidsalternativet). Tvätten ska inte vänta till
+ * i morgon för 9 öre. Starter inom 12 h från den första tas aldrig bort.
+ */
+export function utanOnodigVantan(lista) {
+  const sorterad = [...lista].sort((a, b) => a.startMs - b.startMs);
+  if (!sorterad.length) return sorterad;
+  const nara = sorterad[0].startMs + 12 * 3600e3;
+  let j = 0, minTidigare = Infinity;
+  return sorterad.filter((c) => {
+    if (c.startMs < nara) return true;
+    const grans = Math.max(nara - 1, c.startMs - 12 * 3600e3);
+    while (j < sorterad.length && sorterad[j].startMs <= grans) minTidigare = Math.min(minTidigare, sorterad[j++].kr);
+    return !(minTidigare - c.kr < Math.max(0.25, 0.1 * minTidigare));
+  });
+}
+
+/** Bästa start: billigast() bland starterna som inte skjuter upp i onödan. */
+export function bastaStart(lista) {
+  return billigast(utanOnodigVantan(lista));
+}
+
 export function planera(berikade, nuMs, syssla, { maxTimmar = 24 } = {}) {
   const steg = syssla.timer ? 3600e3 : 900e3;
   const forsta = syssla.timer ? nuMs : Math.ceil(nuMs / 900e3) * 900e3;
@@ -523,11 +548,12 @@ export function planera(berikade, nuMs, syssla, { maxTimmar = 24 } = {}) {
     kandidater.push({ startMs: t, om: Math.round((t - nuMs) / 3600e3), kr, klocka, slut, dagtid });
   }
   if (!kandidater.length) return null;
-  const minst = billigast;
   const tillatna = syssla.dagtid ? kandidater.filter((c) => c.dagtid) : kandidater;
   // "Nu" för bastu och ugn utanför dagtid finns inte – jämför då mot första tillåtna start.
   const nu = syssla.dagtid ? (kandidater[0].dagtid ? kandidater[0] : null) : kandidater[0];
   if (!tillatna.length) return { nu, bast: null, dagAlt: null, sparar: 0, undvikFran: null, kandidater };
+  const bas = nu ?? tillatna[0];
+  const minst = bastaStart;
   const bast = minst(tillatna);
   // Ett dagtidsalternativ för maskiner som annars föreslås på natten – bara om det
   // kostar högst 25 öre eller 10 % mer än bästa tiden.
@@ -535,7 +561,6 @@ export function planera(berikade, nuMs, syssla, { maxTimmar = 24 } = {}) {
   const dagBast = dag?.length ? minst(dag) : null;
   const dagAlt = dagBast && dagBast !== bast && !bast.dagtid
     && dagBast.kr - bast.kr <= Math.max(0.25, 0.1 * bast.kr) ? dagBast : null;
-  const bas = nu ?? tillatna[0];
   // När blir det dyrt om man väntar? Första start (inom 12 h) som kostar minst
   // GRANS_KR mer än att köra nu – för beskedet "kör nu eller före kl X".
   let undvik = tillatna.find((c) => c.startMs > bas.startMs && c.startMs <= bas.startMs + 12 * 3600e3 && c.kr - bas.kr >= GRANS_KR) ?? null;

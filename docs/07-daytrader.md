@@ -76,8 +76,8 @@ Se `analys/resultat_varningar.md`.
 |---|---|
 | Dagsbesked | 152 lugna, 148 svängiga, **66 dra ner-dygn** (cirka 1,3 i veckan, flest i nov–feb och aug) |
 | Signal kl 12 | Kör nu 249, Dra ner 66, Spelar ingen roll 28, Vänta 23 dygn |
-| Signal kl 20 | Vänta 195, Spelar ingen roll 73, Dra ner 60, Kör nu 38 dygn |
-| Orderboken, beslut kl 18 | Tork 2,00 kr/körning (raden är värd ≥ 1 kr 283 dygn av 366). Bastu 4,69 kr. Ugn 0,99 kr. Tvätt 0,78 kr. Disk 0,75 kr. Med antagna körningar per vecka (4/3/5/1/4) blir det **≈ 1 120 kr/år**. |
+| Signal kl 20 | Vänta 191, Spelar ingen roll 77, Dra ner 60, Kör nu 38 dygn |
+| Orderboken, beslut kl 18 | Tork 1,97 kr/körning (raden är värd ≥ 1 kr 282 dygn av 366). Bastu 4,63 kr. Ugn 0,97 kr. Tvätt 0,76 kr. Disk 0,73 kr. Med antagna körningar per vecka (4/3/5/1/4) blir det **≈ 1 100 kr/år**. |
 | Dra ner-dygnen | Huset kostade 3 598 kr över normalt under de dyra perioderna. Att dra ner enligt antagandet sparar ≈ 310 kr/år. |
 | Förvarningar 3 dygn före | 63 st, varav 43 stämde (68 %) |
 
@@ -124,3 +124,11 @@ En tredje kontroll (tre av fyra granskare) bekräftade att alla tolv beräknings
 - **Dra ner-dygn:** rubriken säger vad som återstår och "Det som kan vänta bör vänta till efter …". Den tomma listan säger "Inget att flytta – det mesta är värmepumpen".
 - **Övrigt:** bilens rad döljs när det är för sent för en hel laddning i natt. Ordrar för bastu och ugn kan bli "starta nu". Lagringsflytten körs en gång och rör bara Elkollens egna värden.
 
+En fjärde kontroll (2026-10-11) bekräftade att beräkningsfynden från de tidigare omgångarna är lösta. Den hittade nya fel, som är rättade:
+- **Ordermotorn väntade till i morgon för några öre** (t.ex. disken "i morgon kl 20:45" för 13 öre mindre än i natt). Nu gäller: en start mer än 12 h bort väljs bara om den är minst 25 öre eller 10 % billigare än den bästa tiden inom 12 h (`K.bastaStart`, samma gräns som dagtidsalternativet). Det gäller orderboken, egna ordrar och vad-om. Kl 18–23 under ett år finns 0 sådana uppskjutningar (förut 885). Orderbokens värde sjönk från ≈ 1 120 till ≈ 1 100 kr/år.
+- **Påminnelser** flyttas bara när det kostar minst 1 kr mer att följa den gamla än radens råd nu. Det gäller även när raden bytt sort: en "starta före kl 16:00"-påminnelse byts mot "ställ disken på fördröjd start 3 h nu (kl 21:15)" när raden blivit "vänta". Finns ingen giltig tid tas påminnelsen bort, och raden säger det. "Eller vänta till …" i påminnelsen räknas från dagen den kommer fram.
+- **"Starta före"-raden:** "eller" är nu den billigaste tiden efter den dyrare sträckan (samma tid som egna ordrar och vad-om visar), inte den första som är tillbaka, och står bara en gång. När det är dyrt just nu och en tid före gränsen är minst 25 öre billigare säger raden "helst i kväll kl 21:30 (ställ 2 h), senast före kl 04:45", med samma ord som signalen. Kolumnen visar det typiska beloppet och detaljen "≈ 1 kr dyrare (upp till ≈ 17 kr)".
+- **Signalen "Kör nu"** ger raden med "eller" en egen mening, så att "däremellan" bara gäller den. Före kl 13 står det att morgondagens priser kan ändra rådet, och listan säger det för alla "starta före"-rader, även bastu och ugn. Efterhandstestet kontrollerar nu också att varje klockslag i signalen står i raden den syftar på: 0 avvikelser.
+- **Dra ner-kortet** upprepar inte perioden och säger inte längre "det som kan vänta bör vänta", som kunde säga emot raderna. "Spelar ingen roll" heter "ungefär lika dyrt när du än kör" på ett dra ner-dygn. Dagens värmeråd syns alltid och står före morgondagens.
+- **Ihopfällningen** visar rader värda ≈ 2 kr eller mer, de signalen nämner, dagens värmeråd på dra ner-dygn och "starta före" som kan kosta ≈ 5 kr eller mer. Resten (≈ 1 kr var) fälls ihop.
+- **Text:** klockslag, "ställ 9 h" och tidsspann bryts inte mitt i. Notisen avrundar timerstarter till hel kvart, jämför alla rader med samma tid och skriver råden i tidsordning.

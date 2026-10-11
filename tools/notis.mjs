@@ -78,7 +78,8 @@ export async function byggNotiser(idag, { kallor = {} } = {}) {
     const planer = [planIdag, plan];
     const ob = P.orderbok({ berikade: planer.flatMap((p) => p.kvartar), nuMs, idag, planer });
     const liten = (t) => t.charAt(0).toLowerCase() + t.slice(1);
-    const rad = ob.rader.slice(0, 3).map((r) => liten(P.radText(r)));
+    // De tre som är värda mest, i tidsordning (dagens värmeråd före morgondagens).
+    const rad = ob.rader.slice(0, 3).sort((a, b) => a.startMs - b.startMs).map((r) => liten(P.radText(r)));
     const gor = rad.length ? ` Gör så här: ${rad.join('; ')}.` : ' Inget att flytta – det mesta är värmepumpen (Smart Price i Calibran).';
     notiser.push({
       titel: `Dra ner i morgon ${P.tiderText(plan.dyra)}`,

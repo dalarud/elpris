@@ -98,10 +98,14 @@ for (let idag = fran; K.laggTillDagar(idag, 1) <= sista; idag = K.laggTillDagar(
     signaler[h][sig.ord] = (signaler[h][sig.ord] ?? 0) + 1;
     // Signalen får aldrig säga emot orderboken.
     const rader = ob.rader.filter((r) => r.typ !== 'varme' && r.r?.nu);
-    const helst = /helst .*, senast före/.test(sig.rad) && !(rader[0].r.bast.startMs < rader[0].r.undvikFran.startMs);
+    const helst = /helst .*, senast före/.test(sig.rad) && !(rader[0].helstHuvud && rader[0].helst.startMs < rader[0].startMs);
+    // Varje klockslag i signalen ska stå i någon av raderna den nämner.
+    const radText = ob.rader.filter((r) => (sig.ids ?? []).includes(r.id)).map((r) => `${r.huvud} ${r.detalj.join(' ')}`).join(' ');
+    const klockslag = ['Dra ner', 'Spelar ingen roll'].includes(sig.ord) ? [] : (sig.rad.match(/\d\d:\d\d/g) ?? []);
     if ((sig.ord === 'Spelar ingen roll' && rader.length) || (sig.ord === 'Kör nu' && rader[0]?.typ !== 'fore')
       || (sig.ord === 'Vänta' && !rader.length) || helst
       || (sig.ord === 'Kör nu' && sig.aktuellt.zon === 'dyr' && !/^Dyrt nu/.test(sig.rad))
+      || klockslag.some((t) => !radText.includes(t))
       || (sig.ids ?? []).some((id) => !ob.rader.some((r) => r.id === id))) motsagelser++;
   }
   // Orderboken kl 18: vad sparar varje syssla på att följa raden i stället för att köra direkt?
@@ -164,7 +168,7 @@ w('| Signal | kl 12 | kl 20 |');
 w('|---|---|---|');
 for (const ord of ['Dra ner', 'Vänta', 'Kör nu', 'Spelar ingen roll']) w(`| ${ord} | ${signaler[12][ord] ?? 0} | ${signaler[20][ord] ?? 0} |`);
 w();
-w(`Signalen härleds ur orderboken. Kontrollerat vid varje tidpunkt: att "Spelar ingen roll" bara visas när inget som går att köra nu är värt ≥ 1 kr, att "Kör nu"/"Vänta" stämmer med orderbokens översta rad, att "helst X, senast före Y" har X före Y, att "Kör nu" i en dyr kvart förklaras och att sysslor som signalen nämner finns i listan. Avvikelser: **${motsagelser}**.`);
+w(`Signalen härleds ur orderboken. Kontrollerat vid varje tidpunkt: att "Spelar ingen roll" bara visas när inget som går att köra nu är värt ≥ 1 kr, att "Kör nu"/"Vänta" stämmer med orderbokens översta rad, att "helst X, senast före Y" har X före Y och står så i raden, att "Kör nu" i en dyr kvart förklaras, att sysslor som signalen nämner finns i listan och att varje klockslag i signalen står i de raderna. Avvikelser: **${motsagelser}**.`);
 w();
 w('## Orderboken: vad är raderna värda?');
 w();

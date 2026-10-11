@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as K from '../app/js/kalkyl.js';
+import * as P from '../app/js/plan.js';
 import { prisprognos } from '../app/js/prognos.js';
 import { tolkaMatvarden } from '../app/js/import.js';
 
@@ -249,7 +250,7 @@ test('varmeSankning: väljer de timmar som sparar mest och höjer efter perioden
 
 test('planera: timermaskin i hela timmar från nu, högst 24 h fram', () => {
   const spot = new Array(24).fill(1.0); spot[13] = spot[14] = 0.1;
-  const a = enDag('2026-01-14', spot), b = enDag('2026-01-15', new Array(24).fill(0.05));
+  const a = enDag('2026-01-14', spot), b = enDag('2026-01-15', new Array(24).fill(-1.0));
   const ber = [...a.ber, ...b.ber];
   const nu = Date.parse('2026-01-14T08:05:00+01:00');
   const r = K.planera(ber, nu, K.SYSSLOR.find((s) => s.id === 'tvatt'));
@@ -258,6 +259,28 @@ test('planera: timermaskin i hela timmar från nu, högst 24 h fram', () => {
   assert.equal(r.bast.klocka.datum, '2026-01-15');
   assert.ok(r.kandidater.every((c) => c.startMs - nu <= 24 * 3600e3));
   assert.ok(r.kandidater.every((c) => (c.startMs - nu) % 3600e3 === 0));
+});
+
+test('planera: skjuter inte upp ett halvt dygn till för under 1 kr', () => {
+  const spot = new Array(24).fill(1.0); spot[10] = spot[11] = 0.1;
+  const a = enDag('2026-01-14', spot), b = enDag('2026-01-15', new Array(24).fill(0.05));
+  const ber = [...a.ber, ...b.ber];
+  const nu = Date.parse('2026-01-14T08:05:00+01:00');
+  const r = K.planera(ber, nu, K.SYSSLOR.find((s) => s.id === 'tvatt'));
+  // I natt är några öre billigare (14 h senare), men i dag kl 10:05 räcker – den är
+  // själv värd minst 1 kr jämfört med nu.
+  assert.ok(Math.min(...r.kandidater.map((c) => c.kr)) < r.bast.kr);
+  assert.ok(r.nu.kr - r.bast.kr >= K.GRANS_KR);
+  assert.equal(r.bast.klocka.txt, '10:05');
+  assert.equal(r.bast.klocka.datum, '2026-01-14');
+  // Samma regel för egna ordrar.
+  const o = P.utvarderaOrder({ syssla: 'tvatt', senastMs: Date.parse('2026-01-15T09:00:00+01:00') }, ber, nu);
+  assert.equal(o.start.startMs, r.bast.startMs);
+  // Är den tidigare tiden inte värd 1 kr i sig får rådet vänta till i natt.
+  const spot2 = new Array(24).fill(1.0); spot2[10] = spot2[11] = 0.4;
+  const ber2 = [...enDag('2026-01-14', spot2).ber, ...enDag('2026-01-15', new Array(24).fill(0.05)).ber];
+  const r2 = K.planera(ber2, nu, K.SYSSLOR.find((s) => s.id === 'tvatt'));
+  assert.equal(r2.bast.klocka.datum, '2026-01-15');
 });
 
 test('planera: bastu startar dagtid och är klar senast 21, i hela kvartar', () => {
