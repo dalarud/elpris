@@ -33,9 +33,9 @@ Vad signalen hade sagt kl 12 (bara dagens priser kända) och kl 20 (även morgon
 | Signal | kl 12 | kl 20 |
 |---|---|---|
 | Dra ner | 66 | 60 |
-| Vänta | 23 | 191 |
+| Vänta | 25 | 193 |
 | Kör nu | 249 | 38 |
-| Spelar ingen roll | 28 | 77 |
+| Spelar ingen roll | 26 | 75 |
 
 Signalen härleds ur orderboken. Kontrollerat vid varje tidpunkt: att "Spelar ingen roll" bara visas när inget som går att köra nu är värt ≥ 1 kr, att "Kör nu"/"Vänta" stämmer med orderbokens översta rad, att "helst X, senast före Y" har X före Y och står så i raden, att "Kör nu" i en dyr kvart förklaras, att sysslor som signalen nämner finns i listan och att varje klockslag i signalen står i de raderna. Avvikelser: **0**.
 
@@ -45,16 +45,16 @@ Beslut kl 18 med kända priser (i dag och i morgon), högst 24 h fram, jämfört
 
 | Syssla | Sparat per körning (medel) | Dygn då raden är värd minst 1 kr | Antagna körningar/vecka | ≈ kr/år |
 |---|---|---|---|---|
-| Tvätt (1,0 kWh, 2 h) | 0,76 kr | 99 av 366 | 4 | 159 kr |
-| Tork (2,5 kWh, 2 h) | 1,97 kr | 282 av 366 | 3 | 308 kr |
-| Disk (1,0 kWh, 3 h) | 0,73 kr | 93 av 366 | 5 | 189 kr |
-| Bastu (7,0 kWh, 2 h) | 4,63 kr | 286 av 366 | 1 | 241 kr |
-| Ugn (1,5 kWh, 1 h) | 0,97 kr | 161 av 366 | 4 | 203 kr |
-| **Summa** | | | | **1 099 kr** |
+| Tvätt (1,0 kWh, 2 h) | 0,76 kr | 106 av 366 | 4 | 159 kr |
+| Tork (2,5 kWh, 2 h) | 1,98 kr | 285 av 366 | 3 | 308 kr |
+| Disk (1,0 kWh, 3 h) | 0,73 kr | 97 av 366 | 5 | 189 kr |
+| Bastu (7,0 kWh, 2 h) | 4,63 kr | 290 av 366 | 1 | 241 kr |
+| Ugn (1,5 kWh, 1 h) | 0,97 kr | 166 av 366 | 4 | 203 kr |
+| **Summa** | | | | **1 100 kr** |
 
 ## Slutsatser
 
 - Av 366 dygn var 152 lugna, 148 svängiga och **66 dra ner-dygn** (18 %, ungefär 1,3 i veckan). Bara dra ner-dygnen ger notis och röd färg.
 - Under dra ner-dygnens dyra perioder kostade huset 3 598 kr mer än vid normalpris. Att dra ner enligt antagandet hade sparat ungefär **309 kr på ett år** (uppskattning).
-- Att följa orderboken för tvätt, tork, disk, bastu och ugn (beslut kl 18) är värt ungefär **1 099 kr per år** med antagna körningar – uppskattning.
+- Att följa orderboken för tvätt, tork, disk, bastu och ugn (beslut kl 18) är värt ungefär **1 100 kr per år** med antagna körningar – uppskattning.
 - Förvarningar 3 dygn i förväg: 63 st, varav 43 stämde (68 %). De fångade 43 av 78 dyra dygn (55 %).

@@ -75,9 +75,9 @@ Se `analys/resultat_varningar.md`.
 | Mått | Resultat |
 |---|---|
 | Dagsbesked | 152 lugna, 148 svängiga, **66 dra ner-dygn** (cirka 1,3 i veckan, flest i nov–feb och aug) |
-| Signal kl 12 | Kör nu 249, Dra ner 66, Spelar ingen roll 28, Vänta 23 dygn |
-| Signal kl 20 | Vänta 191, Spelar ingen roll 77, Dra ner 60, Kör nu 38 dygn |
-| Orderboken, beslut kl 18 | Tork 1,97 kr/körning (raden är värd ≥ 1 kr 282 dygn av 366). Bastu 4,63 kr. Ugn 0,97 kr. Tvätt 0,76 kr. Disk 0,73 kr. Med antagna körningar per vecka (4/3/5/1/4) blir det **≈ 1 100 kr/år**. |
+| Signal kl 12 | Kör nu 249, Dra ner 66, Spelar ingen roll 26, Vänta 25 dygn |
+| Signal kl 20 | Vänta 193, Spelar ingen roll 75, Dra ner 60, Kör nu 38 dygn |
+| Orderboken, beslut kl 18 | Tork 1,98 kr/körning (raden är värd ≥ 1 kr 285 dygn av 366). Bastu 4,63 kr. Ugn 0,97 kr. Tvätt 0,76 kr. Disk 0,73 kr. Med antagna körningar per vecka (4/3/5/1/4) blir det **≈ 1 100 kr/år**. |
 | Dra ner-dygnen | Huset kostade 3 598 kr över normalt under de dyra perioderna. Att dra ner enligt antagandet sparar ≈ 310 kr/år. |
 | Förvarningar 3 dygn före | 63 st, varav 43 stämde (68 %) |
 
@@ -132,3 +132,14 @@ En fjärde kontroll (2026-10-11) bekräftade att beräkningsfynden från de tidi
 - **Dra ner-kortet** upprepar inte perioden och säger inte längre "det som kan vänta bör vänta", som kunde säga emot raderna. "Spelar ingen roll" heter "ungefär lika dyrt när du än kör" på ett dra ner-dygn. Dagens värmeråd syns alltid och står före morgondagens.
 - **Ihopfällningen** visar rader värda ≈ 2 kr eller mer, de signalen nämner, dagens värmeråd på dra ner-dygn och "starta före" som kan kosta ≈ 5 kr eller mer. Resten (≈ 1 kr var) fälls ihop.
 - **Text:** klockslag, "ställ 9 h" och tidsspann bryts inte mitt i. Notisen avrundar timerstarter till hel kvart, jämför alla rader med samma tid och skriver råden i tidsordning.
+
+Samma dag kontrollerades robustheten och diffen rad för rad (de två granskare som förut stoppats av kvotgränsen). Elva av tolv robusthetsfynd var lösta. Rättat efter den kontrollen:
+- **Uppgradering från versionen på Pages behöll inte inställningarna.** Engångsflytten kände inte igen dem, så årsförbrukning, tariff och påslag hade tyst återställts. Nu flyttas de när de saknas med prefix, även hos den som redan kört flytten. Påminnelser utan ämne skickar aldrig något till ntfy.
+- **Egna ordrar med pristak** kunde få "över ditt tak" fast ett känt fönster klarade taket, eftersom toleransen valde en tidigare tid strax över. Nu väljs bästa tid bland dem som klarar taket.
+- **Toleransen kunde dölja en rad värd ≥ 1 kr** (t.ex. bastu i kväll för 1,16 kr). Nu väljs då den tidigaste tid inom toleransen som sparar minst 1 kr.
+- **Värmeråd:** raden har samma id hela tiden (`varme-<datum>`), så att en påminnelse inte lossnar när dagens period tar slut och inte kan läggas två gånger. Sänkningar som börjar kl 06–07 kan få påminnelse.
+- **Bocka av en rad** tar bort radens påminnelse, som för ordrar, och visar direkt om bocken inte kunde sparas.
+- **Orderdialogen** behåller den tid du valt när du byter syssla och stoppar bastu- och ugnsordrar som inte hinner inom sina tider. Ordrar har klockknapp även innan ntfy-ämnet är ifyllt.
+- **Nätfel vid kvartsuppdateringen:** signalen och raderna räknas om med de priser som redan finns, kortet säger att uppdateringen misslyckades, och appen försöker igen efter en minut.
+- **Trasiga data:** tider längre bort än 400 dygn och mätvärden med fel form ignoreras i stället för att stoppa sidan.
+

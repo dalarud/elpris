@@ -328,3 +328,45 @@ test('orderbok: före-rad med billigare tid senare säger "eller", värdet är t
   assert.match(tork.huvud, /^starta före kl \d\d:\d\d eller /);
   assert.ok(tork.varde < 2.5 * 1.0 * 1.25 + 0.01);
 });
+
+test('egen order med tak: väljer en tid under taket fast en tidigare tid inom toleransen ligger strax över', () => {
+  const imorgon = new Array(24).fill(1.0); imorgon[1] = imorgon[2] = 0.30; imorgon[4] = imorgon[5] = 0.29;
+  const sc = scen(new Array(24).fill(1.0), imorgon, '2026-01-14T18:00:00+01:00');
+  const tork = K.SYSSLOR.find((s) => s.id === 'tork');
+  const r = K.planera(sc.berikade, sc.nuMs, tork);
+  const k1 = r.kandidater.find((c) => c.klocka.txt === '01:00'), k4 = r.kandidater.find((c) => c.klocka.txt === '04:00');
+  assert.equal(K.billigast(r.kandidater), k1);   // toleransen väljer den tidigare
+  const tak = (k1.kr + k4.kr) / 2 / tork.kwh;
+  const u = P.utvarderaOrder({ syssla: 'tork', senastMs: Date.parse('2026-01-15T07:00:00+01:00'), maxPris: tak }, sc.berikade, sc.nuMs);
+  assert.equal(u.status, 'planerad');
+  assert.equal(u.start.klocka.txt, '04:00');
+  assert.ok(!u.overTak && u.prisKwh <= tak);
+});
+
+test('planera: toleransen döljer aldrig en tid som sparar minst 1 kr', () => {
+  const imorgon = new Array(24).fill(1.0);
+  imorgon[1] = imorgon[2] = 1.0 - 0.97 / 2.5 / 1.25; imorgon[4] = imorgon[5] = 1.0 - 1.03 / 2.5 / 1.25;
+  const sc = scen(new Array(24).fill(1.0), imorgon, '2026-01-14T18:00:00+01:00');
+  const r = K.planera(sc.berikade, sc.nuMs, K.SYSSLOR.find((s) => s.id === 'tork'));
+  assert.equal(K.billigast(r.kandidater).klocka.txt, '01:00');   // sparar 0,97 kr
+  assert.equal(r.bast.klocka.txt, '04:00');
+  assert.ok(r.nu.kr - r.bast.kr >= K.GRANS_KR);
+  assert.equal(P.orderbok(sc).rader.find((x) => x.id === 'tork')?.typ, 'vanta');
+});
+
+test('påminnelse: värmeråd kl 06:30 påminns vid start (från kl 06), maskiner inte före 07', () => {
+  const nu = Date.parse('2026-01-14T14:00:00+01:00');
+  const v = P.paminnelse({ namn: 'Värme', startMs: Date.parse('2026-01-15T06:30:00+01:00'), slutMs: Date.parse('2026-01-15T09:30:00+01:00'), typ: 'varme' }, nu);
+  assert.equal(v.nar.txt, '06:30');
+  assert.equal(P.paminnelse({ namn: 'Bastu', bestamd: 'bastun', startMs: Date.parse('2026-01-15T06:30:00+01:00'), timer: false }, nu), null);
+});
+
+test('orderbok: värmeradens id följer dygnet, så att en påminnelse inte lossnar', () => {
+  const idag = new Array(24).fill(1.0); idag[17] = idag[18] = idag[19] = 4.0;
+  const imorgon = new Array(24).fill(1.0); imorgon[17] = imorgon[18] = imorgon[19] = 4.0;
+  const fore = P.orderbok(scen(idag, imorgon, '2026-01-14T14:00:00+01:00'));
+  const efter = P.orderbok(scen(idag, imorgon, '2026-01-14T21:00:00+01:00'));
+  // Morgondagens råd heter likadant före och efter att dagens dyra period är slut.
+  assert.deepEqual(fore.rader.filter((r) => r.typ === 'varme').map((r) => r.id), ['varme-2026-01-14', 'varme-2026-01-15']);
+  assert.deepEqual(efter.rader.filter((r) => r.typ === 'varme').map((r) => r.id), ['varme-2026-01-15']);
+});

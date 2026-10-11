@@ -234,18 +234,18 @@ export function orderbok({ berikade, nuMs, idag, planer }) {
   const planMedKvar = planer.find((p) => p.dyra.some((d) => d.slutMs > nuMs));
   if (planMedKvar) {
     const v = K.varmeSankning(planMedKvar.dyra.filter((p) => p.slutMs > nuMs), berikade, delar, nuMs);
-    if (v && v.sparar >= K.GRANS_KR) rader.push(varmeRad('varme', v));
+    if (v && v.sparar >= K.GRANS_KR) rader.push(varmeRad(`varme-${v.datum}`, v));
     else varmeLite = true;
   }
   const morgon = planer.find((p) => p.datum !== idag && p.besked === 'draner');
   if (morgon && morgon !== planMedKvar) {
     const v = K.varmeSankning(morgon.dyra, berikade, delar, nuMs);
-    if (v && v.sparar >= K.GRANS_KR) { rader.push(varmeRad('varme-imorgon', v)); varmeLite = false; }
+    if (v && v.sparar >= K.GRANS_KR) { rader.push(varmeRad(`varme-${v.datum}`, v)); varmeLite = false; }
   }
   rader.sort((a, b) => b.varde - a.varde);
   // Dagens värmeråd före morgondagens.
-  const vi = rader.findIndex((x) => x.id === 'varme'), vm = rader.findIndex((x) => x.id === 'varme-imorgon');
-  if (vi > vm && vm >= 0) rader.splice(vm, 0, ...rader.splice(vi, 1));
+  const [va, vb] = rader.filter((x) => x.typ === 'varme').sort((a, b) => a.startMs - b.startMs);
+  if (vb && rader.indexOf(va) > rader.indexOf(vb)) rader.splice(rader.indexOf(vb), 0, ...rader.splice(rader.indexOf(va), 1));
   return { rader: rader.slice(0, 7), ingenRoll, varmeLite, dyrtNu, utanMorgon, summa: rader.reduce((a, x) => a + x.varde, 0) };
 }
 
@@ -436,11 +436,14 @@ export function utvarderaOrder(order, berikade, nuMs) {
     return kandSlut < order.senastMs ? { status: 'vantar', s, reserv: null, kandSlut } : { status: 'for-sent', s };
   }
   const nu = r.nu && r.nu.startMs + langdMs <= order.senastMs ? r.nu : null;
-  const bast = K.bastaStart(tillatna);
-  const prisKwh = bast.kr / s.kwh;
   const facit = kandSlut >= order.senastMs;
   const harTak = Number.isFinite(order.maxPris) && order.maxPris > 0;
-  const overTak = harTak && prisKwh > order.maxPris;
+  // Med tak: bästa tid bland dem som klarar taket. Klarar ingen taket: den billigaste.
+  const underTak = harTak ? tillatna.filter((c) => c.kr / s.kwh <= order.maxPris) : [];
+  const bast = underTak.length ? K.bastaStart(underTak)
+    : harTak ? tillatna.reduce((a, c) => (c.kr < a.kr ? c : a)) : K.bastaStart(tillatna);
+  const prisKwh = bast.kr / s.kwh;
+  const overTak = harTak && !underTak.length;
   const sparar = nu ? nu.kr - bast.kr : null;
   if (facit || !overTak) {
     // "Dags" när bästa tid är nu – för bastu och ugn (prövas i hela kvartar) nästa kvart.
@@ -486,7 +489,8 @@ export function paminnelse({ namn, bestamd, startMs, timer, typ = 'vanta', slutM
     meddelande = `${stor(vem)} kl ${start.txt} – dags om 15 minuter. Det är den billigaste tiden.`;
   }
   const n = K.lokalKlocka(narMs);
-  if (narMs < nuMs + 2 * 60e3 || narMs > nuMs + 3 * 24 * 3600e3 || n.timme >= 22 || n.timme < 7) return null;
+  // Värmeråd får påminna från kl 06 (sänkningen börjar då); övrigt inte kl 22–07.
+  if (narMs < nuMs + 2 * 60e3 || narMs > nuMs + 3 * 24 * 3600e3 || n.timme >= 22 || n.timme < (typ === 'varme' ? 6 : 7)) return null;
   return { narMs, nar: n, meddelande };
 }
 

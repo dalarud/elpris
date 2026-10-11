@@ -554,7 +554,12 @@ export function planera(berikade, nuMs, syssla, { maxTimmar = 24 } = {}) {
   if (!tillatna.length) return { nu, bast: null, dagAlt: null, sparar: 0, undvikFran: null, kandidater };
   const bas = nu ?? tillatna[0];
   const minst = bastaStart;
-  const bast = minst(tillatna);
+  let bast = minst(tillatna);
+  // Toleransen får inte dölja en tid som sparar minst GRANS_KR: välj då bland dem.
+  if (bas.kr - bast.kr < GRANS_KR) {
+    const sparar = utanOnodigVantan(tillatna).filter((c) => bas.kr - c.kr >= GRANS_KR);
+    if (sparar.length) bast = billigast(sparar);
+  }
   // Ett dagtidsalternativ för maskiner som annars föreslås på natten – bara om det
   // kostar högst 25 öre eller 10 % mer än bästa tiden.
   const dag = syssla.dagtid ? null : kandidater.filter((c) => c.dagtid);
