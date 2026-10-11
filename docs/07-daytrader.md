@@ -75,9 +75,9 @@ Se `analys/resultat_varningar.md`.
 | Mått | Resultat |
 |---|---|
 | Dagsbesked | 152 lugna, 148 svängiga, **66 dra ner-dygn** (cirka 1,3 i veckan, flest i nov–feb och aug) |
-| Signal kl 12 | Kör nu 226, Spelar ingen roll 58, Dra ner 66, Vänta 16 dygn |
-| Signal kl 20 | Vänta 190, Kör nu 66, Dra ner 60, Spelar ingen roll 50 dygn |
-| Orderboken, beslut kl 18 | Tork 2,02 kr/körning (raden är värd ≥ 1 kr 286 dygn av 366). Bastu 4,85 kr. Ugn 1,06 kr. Tvätt 0,81 kr. Disk 0,77 kr. Med antagna körningar per vecka (4/3/5/1/4) blir det **≈ 1 160 kr/år**. |
+| Signal kl 12 | Kör nu 249, Dra ner 66, Spelar ingen roll 28, Vänta 23 dygn |
+| Signal kl 20 | Vänta 195, Spelar ingen roll 73, Dra ner 60, Kör nu 38 dygn |
+| Orderboken, beslut kl 18 | Tork 2,00 kr/körning (raden är värd ≥ 1 kr 283 dygn av 366). Bastu 4,69 kr. Ugn 0,99 kr. Tvätt 0,78 kr. Disk 0,75 kr. Med antagna körningar per vecka (4/3/5/1/4) blir det **≈ 1 120 kr/år**. |
 | Dra ner-dygnen | Huset kostade 3 598 kr över normalt under de dyra perioderna. Att dra ner enligt antagandet sparar ≈ 310 kr/år. |
 | Förvarningar 3 dygn före | 63 st, varav 43 stämde (68 %) |
 
@@ -116,4 +116,11 @@ En andra kontroll av rättningarna (en av fyra granskare hann klart innan kvotgr
 - Värdet på "starta före"-rader visade bara skillnaden vid gränsen. Nu visas spannet, t.ex. "efter kl 05:30 3–6 kr dyrare", och det högre beloppet räknas.
 - Ihopfällningen dolde ibland en rad som signalen nämnde. Nu fälls bara minst två rader ihop, och aldrig en som signalen nämner.
 - Orderdialogen föreslog ett pristak även när alla priser fram till senast-tiden var kända, och gav sedan "över ditt tak". Nu används taket bara när det behövs.
+
+En tredje kontroll (tre av fyra granskare) bekräftade att alla tolv beräkningsfynd är lösta och hittade bland annat följande, som är rättat:
+- **"Starta före"-raden** beskriver nu tre lägen: nu är bra, däremellan dyrare, senare bra igen ("starta före kl 16:00 eller i natt kl 01:00 (ställ 11 h)"). Värdet är det typiska påslaget (median) under den dyrare sträckan, inte det värsta fallet. Gränsen räknas i kvartar även för maskiner med timer.
+- **Påminnelser:** synken jämför bara samma sorts rad och tar aldrig bort en påminnelse bara för att raden bytt typ (en korrekt kvällspåminnelse kunde förut försvinna tyst). Timerstart kl 07:00–07:14 påminns kvällen före. Ordrar som väntar på nästa dygns priser får ingen påminnelse. En påminnelse som väntade på ntfy-ämnet räknas om när ämnet sparats.
+- **Notisen** skriver bara absoluta klockslag ("kör torken i natt kl 02:00 – ställ timern så att den startar då") och tar med rådet om att sänka värmen under morgondagens dra ner-dygn.
+- **Dra ner-dygn:** rubriken säger vad som återstår och "Det som kan vänta bör vänta till efter …". Den tomma listan säger "Inget att flytta – det mesta är värmepumpen".
+- **Övrigt:** bilens rad döljs när det är för sent för en hel laddning i natt. Ordrar för bastu och ugn kan bli "starta nu". Lagringsflytten körs en gång och rör bara Elkollens egna värden.
 

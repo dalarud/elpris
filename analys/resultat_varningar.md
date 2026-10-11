@@ -33,8 +33,8 @@ Vad signalen hade sagt kl 12 (bara dagens priser kända) och kl 20 (även morgon
 | Signal | kl 12 | kl 20 |
 |---|---|---|
 | Dra ner | 66 | 60 |
-| Vänta | 22 | 194 |
-| Kör nu | 250 | 39 |
+| Vänta | 23 | 195 |
+| Kör nu | 249 | 38 |
 | Spelar ingen roll | 28 | 73 |
 
 Signalen härleds ur orderboken. Kontrollerat vid varje tidpunkt: att "Spelar ingen roll" bara visas när inget som går att köra nu är värt ≥ 1 kr, att "Kör nu"/"Vänta" stämmer med orderbokens översta rad, att "helst X, senast före Y" har X före Y, att "Kör nu" i en dyr kvart förklaras och att sysslor som signalen nämner finns i listan. Avvikelser: **0**.

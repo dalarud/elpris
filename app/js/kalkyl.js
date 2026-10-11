@@ -538,8 +538,20 @@ export function planera(berikade, nuMs, syssla, { maxTimmar = 24 } = {}) {
   const bas = nu ?? tillatna[0];
   // När blir det dyrt om man väntar? Första start (inom 12 h) som kostar minst
   // GRANS_KR mer än att köra nu – för beskedet "kör nu eller före kl X".
-  const undvik = tillatna.find((c) => c.startMs > bas.startMs && c.startMs <= bas.startMs + 12 * 3600e3 && c.kr - bas.kr >= GRANS_KR);
-  return { nu, bast, dagAlt, sparar: nu ? nu.kr - bast.kr : 0, undvikFran: undvik ?? null, kandidater };
+  let undvik = tillatna.find((c) => c.startMs > bas.startMs && c.startMs <= bas.startMs + 12 * 3600e3 && c.kr - bas.kr >= GRANS_KR) ?? null;
+  // Maskiner med timer prövas i hela timmar; gränsen "starta före kl X" letas upp i
+  // kvartar, så att X inte hamnar upp till en timme för sent.
+  if (undvik && syssla.timer) {
+    for (let t = Math.ceil((undvik.startMs - 3600e3 + 1) / 900e3) * 900e3; t < undvik.startMs; t += 900e3) {
+      if (t <= bas.startMs) continue;
+      const kr = fonsterKostnad(berikade, t, syssla.timmar, syssla.kwh);
+      if (kr !== null && kr - bas.kr >= GRANS_KR) {
+        undvik = { startMs: t, om: (t - nuMs) / 3600e3, kr, klocka: lokalKlocka(t), slut: lokalKlocka(t + syssla.timmar * 3600e3), dagtid: false };
+        break;
+      }
+    }
+  }
+  return { nu, bast, dagAlt, sparar: nu ? nu.kr - bast.kr : 0, undvikFran: undvik, kandidater };
 }
 
 /** Ligger [startMs, slutMs) i någon av perioderna ({ startMs, slutMs })? */

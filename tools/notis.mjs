@@ -48,11 +48,10 @@ async function historikMedFil(idag) {
 }
 
 /** När notisen räknas: nu, eller kl 13:40 det simulerade dygnet om nu ligger utanför dess priser. */
-function beslutstid(pIdag, nuMs = Date.now()) {
+function beslutstid(pIdag, nuMs = Date.now(), idag = pIdag[0].datum) {
   const sista = pIdag[pIdag.length - 1];
   if (nuMs >= pIdag[0].t0 && nuMs < sista.t0 + sista.langd * 60e3) return nuMs;
-  const kl1330 = pIdag.find((i) => i.timme === 13 && i.minut === 30) ?? pIdag[0];
-  return kl1330.t0 + 10 * 60e3;
+  return P.lokalMs(idag, '13:40');
 }
 
 export async function byggNotiser(idag, { kallor = {} } = {}) {
@@ -75,11 +74,12 @@ export async function byggNotiser(idag, { kallor = {} } = {}) {
     const max = Math.max(...plan.dyra.map((p) => p.max));
     // Samma råd som appens orderbok vid samma tidpunkt (kl 13:40).
     const planIdag = P.dagsplan(idag, pIdag, tim, temp, inst);
-    const nuMs = beslutstid(pIdag, kallor.nuMs);
+    const nuMs = beslutstid(pIdag, kallor.nuMs, idag);
     const planer = [planIdag, plan];
     const ob = P.orderbok({ berikade: planer.flatMap((p) => p.kvartar), nuMs, idag, planer });
     const liten = (t) => t.charAt(0).toLowerCase() + t.slice(1);
-    const gor = ob.rader.length ? ` Gör så här: ${ob.rader.slice(0, 3).map((r) => liten(P.radText(r, idag))).join('; ')}.` : '';
+    const rad = ob.rader.slice(0, 3).map((r) => liten(P.radText(r)));
+    const gor = rad.length ? ` Gör så här: ${rad.join('; ')}.` : ' Inget att flytta – det mesta är värmepumpen (Smart Price i Calibran).';
     notiser.push({
       titel: `Dra ner i morgon ${P.tiderText(plan.dyra)}`,
       text: `Upp till ${K.krKwh(max)} (normalt ${K.krKwh(plan.ref.totalMedian)}). Huset ≈ ${K.kr(plan.extra)} över normalt under de dyra timmarna (beräknat).${gor}`,

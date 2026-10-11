@@ -43,13 +43,29 @@ function spara(nyckel, v) {
 }
 
 // Engångsflytt från nycklarna utan prefix (varv 3 före 2026-10-10) och städning av varv 2.
+// Körs en gång och tar bara över värden som ser ut som Elkollens – origin delas med andra projekt.
 try {
-  for (const k of ['installningar', 'matvarden', 'journal', 'ordrar', 'paminnelser', 'kursOppen', 'fastOre']) {
-    const gammal = localStorage.getItem(k);
-    if (gammal !== null && localStorage.getItem(PREFIX + k) === null) localStorage.setItem(PREFIX + k, gammal);
-    if (gammal !== null) localStorage.removeItem(k);
+  if (localStorage.getItem(PREFIX + 'flyttad') === null) {
+    const ser = {
+      installningar: (v) => VANLIGT_OBJEKT(v) && 'elomrade' in v,
+      matvarden: (v) => VANLIGT_OBJEKT(v) && VANLIGT_OBJEKT(v.statistik),
+      journal: (v) => VANLIGT_OBJEKT(v) && Object.keys(v).every((k) => /^\d{4}-\d{2}-\d{2}:/.test(k)),
+      ordrar: (v) => Array.isArray(v) && v.every((o) => VANLIGT_OBJEKT(o) && 'syssla' in o && 'senastMs' in o),
+      paminnelser: (v) => VANLIGT_OBJEKT(v) && Object.keys(v).every((k) => k.startsWith('elkollen-')),
+      kursOppen: (v) => typeof v === 'boolean',
+      fastOre: (v) => v === null || Number.isFinite(v),
+    };
+    for (const [k, ok] of Object.entries(ser)) {
+      const gammal = localStorage.getItem(k);
+      if (gammal === null) continue;
+      let v; try { v = JSON.parse(gammal); } catch { continue; }
+      if (!ok(v)) continue;
+      if (localStorage.getItem(PREFIX + k) === null) localStorage.setItem(PREFIX + k, gammal);
+      localStorage.removeItem(k);
+    }
+    for (const k of Object.keys(localStorage)) if (/^(drana|varnad):\d{4}-/.test(k)) localStorage.removeItem(k);
+    localStorage.setItem(PREFIX + 'flyttad', '1');
   }
-  for (const k of Object.keys(localStorage)) if (/^(drana|varnad):/.test(k) || k === 'syssla') localStorage.removeItem(k);
 } catch { /* lagring blockerad */ }
 
 function laddaInstallningar() {
@@ -70,7 +86,9 @@ let ordrar = lasLokalt('ordrar', [], Array.isArray)
   .filter((o) => VANLIGT_OBJEKT(o) && typeof o.id === 'string' && SYSSLA_ID.has(o.syssla) && Number.isFinite(o.senastMs));
 // Påminnelser: { sekvens: { sekvens, nyckel, narMs, startMs, titel, amne, server } }
 let paminnelser = Object.fromEntries(Object.entries(lasLokalt('paminnelser', {}, VANLIGT_OBJEKT))
-  .filter(([, v]) => VANLIGT_OBJEKT(v) && typeof v.nyckel === 'string' && Number.isFinite(v.narMs) && Number.isFinite(v.startMs)));
+  .filter(([, v]) => VANLIGT_OBJEKT(v) && typeof v.nyckel === 'string' && Number.isFinite(v.narMs) && Number.isFinite(v.startMs))
+  .map(([k, v]) => [k, { ...v, sekvens: typeof v.sekvens === 'string' ? v.sekvens : k, titel: typeof v.titel === 'string' ? v.titel : 'Elkollen: påminnelse' }]));
+for (const p of Object.values(paminnelser)) { p.amne ??= inst.ntfyAmne; p.server ??= inst.ntfyServer; }
 let kursOppen = lasLokalt('kursOppen', false, (v) => typeof v === 'boolean');
 let fastOre = lasLokalt('fastOre', null, (v) => v === null || Number.isFinite(v));
 let senast = null;      // senaste beräkningen, för att rita om utan att hämta
@@ -227,7 +245,7 @@ function visaSignal(s) {
   if (!pImorgon) morgon = '<p class="morgon dampad">I morgon: priserna kommer kl 13.</p>';
   else if (planI.besked === 'lugnt') morgon = `<p class="morgon"><span class="besked-ord lugnt">Lugnt</span> i morgon ${morgonDag} – inget dyrt (${K.tal(planI.min, 2)}–${K.tal(planI.max, 2)} kr/kWh).</p>`;
   else if (planI.besked === 'svangigt') morgon = `<p class="morgon"><span class="besked-ord svangigt">Svängigt</span> i morgon ${morgonDag} – dyrt ${P.tiderText(planI.dyra)}, men det kostar huset bara ≈ ${K.kr(Math.max(0, planI.extra))} extra.</p>`;
-  else morgon = `<p class="morgon"><span class="besked-ord draner">Dra ner</span> i morgon ${P.tiderText(planI.dyra)} – huset ≈ ${K.kr(planI.extra)} över normalt. Listan nedan tar hänsyn till det.</p>`;
+  else morgon = `<p class="morgon"><span class="besked-ord draner">Dra ner</span> i morgon ${P.tiderText(planI.dyra)} – huset ≈ ${K.kr(planI.extra)} över normalt.</p>`;
   $('#signal').hidden = false;
   $('#signal').className = `kort signal ${sig.klass}`;
   $('#signal').innerHTML = `
@@ -406,7 +424,7 @@ document.addEventListener('toggle', (e) => {
 function paminnelseFor(r, nuMs) {
   if (!r?.startMs) return null;
   return P.paminnelse({ namn: r.namn, bestamd: r.syssla?.bestamd, startMs: r.startMs, slutMs: r.slutMs ?? null,
-    timer: Boolean(r.syssla?.timer) && r.typ === 'vanta', typ: r.typ }, nuMs);
+    timer: Boolean(r.syssla?.timer) && r.typ === 'vanta', typ: r.typ === 'varme-imorgon' ? 'varme' : r.typ, eller: r.ellerNar ?? null }, nuMs);
 }
 
 const aktivaPaminnelser = () => Object.values(paminnelser).filter((p) => p.narMs > Date.now());
@@ -419,10 +437,11 @@ function visaOrderbok(s) {
   const planIdag = planer[0];
   const kvar = planIdag.dyra.filter((p) => p.slutMs > nu.ms);
   const draner = planIdag.besked === 'draner' && kvar.length > 0;
-  const { kwh: kvarKwh, extra: kvarExtra } = P.aterstar(planIdag, nu.ms);
+  const { extra: kvarExtra } = P.aterstar(planIdag, nu.ms);
+  const vanta = s.signal?.dyrtTill ? ` Det som kan vänta bör vänta till efter ${s.signal.dyrtTill}.` : '';
   const rubrik = draner
-    ? `<h2>Dra ner ${P.tiderText(kvar, ' · ')}</h2><p class="exponering">Huset ≈ ${K.tal(kvarKwh)} kWh under de dyra timmar som återstår i dag, ≈ ${K.kr(kvarExtra)} över normalt <span class="dampad">(beräknat)</span>. Bocka av det du gör:</p>`
-    : `<div class="rubrikrad"><h2>När ska jag köra?</h2>${ob.rader.length ? `<span class="dampad">≈ ${K.kr(ob.summa)} om allt flyttas</span>` : ''}</div>`;
+    ? `<h2>Dra ner ${P.tiderText(kvar, ' · ')}</h2><p class="exponering">≈ ${K.kr(kvarExtra)} över normalt för huset under det som återstår <span class="dampad">(beräknat)</span>.${vanta}${ob.rader.length ? ' Bocka av det du gör:' : ''}</p>`
+    : `<div class="rubrikrad"><h2>När ska jag köra?</h2>${ob.rader.length ? `<span class="dampad">≈ ${K.kr(ob.summa)} att vinna</span>` : ''}</div>`;
   const rad = (r) => {
     const nyckel = `${idag}:${r.id}`;
     const pam = hittaPaminnelse(`rad:${r.id}`);
@@ -437,31 +456,35 @@ function visaOrderbok(s) {
     </li>`;
   };
   const ingen = [];
+  // Minst tre rader syns; fler under 2 kr fälls ihop så att listan förblir kort.
+  const namnda = new Set(s.signal?.ids ?? []);
+  const antal = Math.max(3, ob.rader.filter((r) => Math.round(r.varde) >= 2).length);
+  let synliga = ob.rader.filter((r, i) => i < antal || namnda.has(r.id));
+  let fler = ob.rader.filter((r) => !synliga.includes(r));
+  if (fler.length < 2) { synliga = ob.rader; fler = []; }
   if (ob.ingenRoll.length) {
     ingen.push(ob.rader.length ? `Spelar ingen roll i dag: ${P.ochLista(ob.ingenRoll)}.`
       : `Spelar ingen roll i dag – kör ${P.ochLista(ob.ingenRoll)} när det passar dig.`);
   }
-  if (ob.dyrtNu && ob.rader.some((r) => r.typ === 'fore')) ingen.unshift('Det är dyrt även nu, men dyrare senare för det som står "starta före".');
+  if (ob.dyrtNu && synliga.some((r) => r.typ === 'fore')) ingen.unshift('Det är dyrt nu också, men ännu dyrare senare för raderna "starta före".');
+  if (!ob.rader.length && draner) ingen.unshift('Inget att flytta – det mesta är värmepumpen.');
   if (ob.varmeLite) ingen.push(`Att sänka värmen ger under 1 kr${draner ? ' i dag – det är dyrt även efteråt' : ''}.`);
   if (!s.pImorgon && ob.rader.some((r) => r.typ === 'fore' && r.syssla?.timer)) ingen.push('Före kl 13 räknar listan bara med dagens priser – nattens kommer kl 13.');
 
   // Kontrollrader: bilen och värmepumpen.
   const bil = P.bilFonster({ berikade: s.berikade, nuMs: nu.ms, inst });
-  const bilTxt = !bil ? '' : bil.saknas ? 'Bil: nattens priser kommer kl 13.'
-    : `Bil: laddboxen bör ladda ${esc(bil.txt)}${bil.sparar >= K.GRANS_KR ? ` – ≈ ${K.kr(bil.sparar)} billigare än direkt kl 18` : ''}. <span class="dampad">(antaget ${K.tal(bil.kwh, 1)} kWh)</span>`;
+  const allaDyra = planer.flatMap((p) => p.dyra);
+  const bilDyr = bil?.bast && K.iPerioder(allaDyra, bil.bast.startMs, bil.bast.startMs + 3600e3);
+  const bilTxt = !bil || bil.forSent ? '' : bil.saknas ? 'Bil: nattens priser kommer kl 13.'
+    : `Bil: laddboxen bör ladda ${esc(bil.txt)}${bilDyr ? ' (dyrt även då, men billigast i natt)' : ''}${bil.sparar >= K.GRANS_KR ? ` – ≈ ${K.kr(bil.sparar)} billigare än direkt kl 18` : ''}. <span class="dampad">(antaget ${K.tal(bil.kwh, 1)} kWh)</span>`;
   // Är dagens dyra period nästan slut visas morgondagens i stället.
-  const vpPlan = kvar.length && (P.aterstar(planIdag, nu.ms).varmeKwh >= 0.5 || !planer[1]) ? planIdag : planer[1];
-  const vp = P.varmepumpLage(vpPlan, nu.ms);
+  const vpIdag = P.varmepumpLage(planIdag, nu.ms), vpImorgon = planer[1] ? P.varmepumpLage(planer[1], nu.ms) : null;
+  const vpPlan = vpIdag && (vpIdag.kwh >= 0.5 || !vpImorgon) ? planIdag : vpImorgon ? planer[1] : planIdag;
+  const vp = vpPlan === planIdag ? vpIdag : vpImorgon;
   const vpTxt = vp
     ? `Värmepump ostyrd: ≈ ${K.tal(vp.kwh)} av husets ${K.tal(vp.husKwh)} kWh ${vpPlan.datum === idag ? '' : 'i morgon '}${vp.tider}${vp.extra >= 0.5 ? `, ≈ ${K.kr(vp.extra)} över normalt` : ''} <span class="dampad">(beräknat)</span>.`
     : 'Värmepump ostyrd – inga dyra perioder framför dig.';
 
-  // Minst tre rader syns; fler under 2 kr fälls ihop så att listan förblir kort.
-  const namnda = new Set(s.signal?.ids ?? []);
-  const antal = Math.max(3, ob.rader.filter((r) => r.varde >= 2).length);
-  let synliga = ob.rader.filter((r, i) => i < antal || namnda.has(r.id));
-  let fler = ob.rader.filter((r) => !synliga.includes(r));
-  if (fler.length < 2) { synliga = ob.rader; fler = []; }
   // Påminnelser vars rad inte längre finns (t.ex. nu "spelar ingen roll") ska gå att ta bort.
   const radNycklar = new Set([...ob.rader.map((r) => `rad:${r.id}`), ...ordrar.map((o) => `order:${o.id}`)]);
   const losa = aktivaPaminnelser().filter((p) => !radNycklar.has(p.nyckel));
@@ -470,7 +493,7 @@ function visaOrderbok(s) {
   $('#orderbok').className = `kort orderbok${draner ? ' draner' : ''}`;
   $('#orderbok').innerHTML = `${rubrik}
     ${ob.rader.length ? `<ul class="orderlista">${synliga.map(rad).join('')}</ul>` : ''}
-    ${fler.length ? `<details class="fler"${flerOppen ? ' open' : ''}><summary>Visa ${fler.length} till (under 2 kr var)</summary><ul class="orderlista">${fler.map(rad).join('')}</ul></details>` : ''}
+    ${fler.length ? `<details class="fler"${flerOppen ? ' open' : ''}><summary><span class="visa">Visa ${fler.length} till (≈ 1 kr var)</span><span class="dolj">Dölj</span></summary><ul class="orderlista">${fler.map(rad).join('')}</ul></details>` : ''}
     ${ingen.length ? `<p class="ingen-roll">${esc(ingen.join(' '))}</p>` : ''}
     ${losa.length ? `<ul class="losa">${losa.map((p) => `<li>${esc(p.titel.replace(/^Elkollen: /, ''))}: ${paminnerTxt(p, idag)}</li>`).join('')}</ul>` : ''}
     <ul class="kontroll">
@@ -501,7 +524,7 @@ function orderStart(u) { return u?.start ?? u?.reserv ?? null; }
 /** En order som orderboksrad, så att påminnelser behandlas lika. */
 function orderSomRad(o, u) {
   const start = orderStart(u);
-  if (!start || u.status === 'for-sent' || u.status === 'utanfor-tid') return null;
+  if (!start || !['planerad', 'dags'].includes(u.status)) return null;
   return { id: o.id, namn: u.s.namn, syssla: u.s, startMs: start.startMs, typ: u.s.timer && start.om > 0 ? 'vanta' : 'dag' };
 }
 
@@ -663,9 +686,9 @@ async function ntfy(metod, server, vag, kropp) {
   if (!r.ok) throw new Error(`ntfy svarade ${r.status}`);
 }
 
-async function laggPaminnelse(nyckel, titel, p, startMs) {
+async function laggPaminnelse(nyckel, titel, p, startMs, typ = null) {
   if (!inst.ntfyAmne) {
-    vantandePaminnelse = { nyckel, titel, p, startMs };
+    vantandePaminnelse = nyckel;
     oppnaInstallningar('ntfyAmne');
     return;
   }
@@ -673,7 +696,7 @@ async function laggPaminnelse(nyckel, titel, p, startMs) {
   try {
     await ntfy('POST', inst.ntfyServer, '/', P.ntfyKropp(inst.ntfyAmne, sekvens, titel, p, location.href.split('#')[0]));
     for (const [k, v] of Object.entries(paminnelser)) if (v.nyckel === nyckel) delete paminnelser[k];
-    paminnelser[sekvens] = { sekvens, nyckel, narMs: p.narMs, startMs, titel, amne: inst.ntfyAmne, server: inst.ntfyServer };
+    paminnelser[sekvens] = { sekvens, nyckel, narMs: p.narMs, startMs, titel, typ, amne: inst.ntfyAmne, server: inst.ntfyServer };
     spara('paminnelser', paminnelser);
   } catch (e) {
     alert(`Påminnelsen kunde inte läggas (${e.message}). Kontrollera ntfy-ämnet under Inställningar.`);
@@ -713,18 +736,16 @@ async function synkaPaminnelser(s) {
   }
   for (const pam of Object.values(paminnelser)) {
     const r = rader.get(pam.nyckel);
-    if (!r || pam.narMs < nuMs + 10 * 60e3) continue;
+    // Ingen rad, annan sorts rad (t.ex. "vänta" som blivit "starta före") eller snart dags:
+    // behåll påminnelsen som den är – planen den gäller är fortfarande en bra tid.
+    if (!r || (pam.typ && r.typ !== pam.typ) || pam.narMs < nuMs + 10 * 60e3) continue;
     const grans = r.syssla?.timer ? 60 * 60e3 : 30 * 60e3;
     if (Math.abs(pam.startMs - r.startMs) < grans) continue;
     const p = paminnelseFor(r, nuMs);
+    if (!p) continue;
     try {
-      if (p) {
-        await ntfy('POST', pam.server, '/', P.ntfyKropp(pam.amne, pam.sekvens, pam.titel, p, location.href.split('#')[0]));
-        Object.assign(pam, { narMs: p.narMs, startMs: r.startMs });
-      } else {
-        await ntfy('DELETE', pam.server, `/${encodeURIComponent(pam.amne)}/${pam.sekvens}`);
-        delete paminnelser[pam.sekvens];
-      }
+      await ntfy('POST', pam.server, '/', P.ntfyKropp(pam.amne, pam.sekvens, pam.titel, p, location.href.split('#')[0]));
+      Object.assign(pam, { narMs: p.narMs, startMs: r.startMs });
       andrat = true;
     } catch { /* försök igen vid nästa uppdatering */ }
   }
@@ -736,7 +757,7 @@ document.addEventListener('click', (e) => {
   if (knapp && senast) {
     const r = senast.orderbok.rader.find((x) => x.id === knapp.dataset.pamin);
     const p = r && paminnelseFor(r, Date.now());
-    if (p) laggPaminnelse(`rad:${r.id}`, `Elkollen: ${r.namn}`, p, r.startMs);
+    if (p) laggPaminnelse(`rad:${r.id}`, `Elkollen: ${r.namn}`, p, r.startMs, r.typ);
     return;
   }
   const ok = e.target.closest('[data-pamin-order]');
@@ -744,7 +765,7 @@ document.addEventListener('click', (e) => {
     const o = ordrar.find((x) => x.id === ok.dataset.paminOrder);
     const r = o && orderSomRad(o, P.utvarderaOrder(o, senast.berikade, Date.now()));
     const p = r && paminnelseFor(r, Date.now());
-    if (p) laggPaminnelse(`order:${o.id}`, `Elkollen: ${r.namn}`, p, r.startMs);
+    if (p) laggPaminnelse(`order:${o.id}`, `Elkollen: ${r.namn}`, p, r.startMs, r.typ);
     return;
   }
   const bort = e.target.closest('[data-pamin-bort]');
@@ -940,11 +961,19 @@ $('#installningar').addEventListener('close', () => {
       natFastKrManad: { ...K.STANDARD.natFastKrManad, ...ny.natFastKrManad },
       overforing: { ...K.STANDARD.overforing, ...ny.overforing } };
     if (!sparaLokalt('installningar', ny)) $('#plats').textContent = 'SE3 · Jönköping · inställningarna sparas inte i den här webbläsaren';
-    // En påminnelse som väntade på ntfy-ämnet läggs direkt.
-    const v = vantandePaminnelse;
+    // En påminnelse som väntade på ntfy-ämnet läggs när allt räknats om – med tid och
+    // text för nu, inte för när klockan trycktes.
+    const vantande = vantandePaminnelse;
     vantandePaminnelse = null;
-    if (v && inst.ntfyAmne) laggPaminnelse(v.nyckel, v.titel, v.p, v.startMs);
-    start();
+    start().then(() => {
+      if (!vantande || !inst.ntfyAmne || !senast) return;
+      const r = vantande.startsWith('rad:')
+        ? senast.orderbok.rader.find((x) => `rad:${x.id}` === vantande)
+        : (() => { const o = ordrar.find((x) => `order:${x.id}` === vantande); return o && orderSomRad(o, P.utvarderaOrder(o, senast.berikade, Date.now())); })();
+      const p = r && paminnelseFor(r, Date.now());
+      if (p) laggPaminnelse(vantande, `Elkollen: ${r.namn}`, p, r.startMs, r.typ);
+      else alert('Tiden för påminnelsen har passerat eller planen har ändrats – titta på listan igen.');
+    });
   } else {
     vantandePaminnelse = null;
     if (matvardenAndrade) start();

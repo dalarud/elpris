@@ -191,7 +191,11 @@ test('radText: korta råd med klockslag för notisen', () => {
   const idag = new Array(24).fill(0.5); idag[17] = idag[18] = idag[19] = 3.0;
   const ob = P.orderbok(scen(idag, null, '2026-01-14T14:00:00+01:00'));
   const bastu = ob.rader.find((r) => r.id === 'bastu');
-  assert.match(P.radText(bastu, '2026-01-14'), /^Basta i dag före kl 1[56]:\d\d \(annars upp till ≈ \d+\u00a0kr mer\)$/);
+  assert.match(P.radText(bastu), /^Basta i dag före kl 1[56]:\d\d \(annars ≈ \d+\u00a0kr mer\)$/);
+  // Notisen skriver aldrig "ställ N h" eller "nu" (den kan läsas långt senare).
+  const imorgon = new Array(24).fill(1.0); imorgon[2] = imorgon[3] = 0.1;
+  const ob2 = P.orderbok(scen(new Array(24).fill(1.0), imorgon, '2026-01-14T13:40:00+01:00'));
+  for (const r of ob2.rader) assert.doesNotMatch(P.radText(r), /ställ \d+ h|\bnu\b/);
 });
 
 test('påminnelse och lokalMs: rätt kring bytet till vintertid 25 oktober', () => {
@@ -282,4 +286,38 @@ test('signal och orderbok säger aldrig emot varandra (slumpade dygn)', () => {
     for (const r of ob.rader.filter((x) => x.typ === 'fore')) assert.ok(r.varde >= r.r.undvikFran.kr - r.r.nu.kr - 1e-9);
     if (rader.length && sig.ord !== 'Dra ner') assert.notEqual(sig.ord, 'Spelar ingen roll');
   }
+});
+
+test('påminnelse: timerstart kl 07:00 påminns kvällen före; före-rad med "eller"', () => {
+  const p = P.paminnelse({ namn: 'Tork', bestamd: 'torken', startMs: Date.parse('2026-01-15T07:00:00+01:00'), timer: true }, Date.parse('2026-01-14T15:00:00+01:00'));
+  assert.equal(p.nar.txt, '21:00');
+  assert.match(p.meddelande, /fördröjd start 10 h nu \(kl 21:00\)/);
+  const f = P.paminnelse({ namn: 'Tork', bestamd: 'torken', startMs: Date.parse('2026-01-14T16:00:00+01:00'), typ: 'fore', eller: 'i natt kl 01:00' }, Date.parse('2026-01-14T14:00:00+01:00'));
+  assert.equal(f.meddelande, 'Starta torken före kl 16:00 eller vänta till i natt kl 01:00 – däremellan är det dyrare.');
+});
+
+test('planera: gränsen "starta före" för timermaskiner räknas i kvartar', () => {
+  const idag = new Array(24).fill(1.0); idag[17] = idag[18] = idag[19] = 3.0;
+  const sc = scen(idag, null, '2026-01-14T14:10:00+01:00');
+  const r = K.planera(sc.berikade, sc.nuMs, K.SYSSLOR.find((s) => s.id === 'tork'));
+  assert.ok(r.undvikFran);
+  assert.equal(r.undvikFran.startMs % 900e3, 0);
+  // Ingen start före gränsen kostar redan minst 1 kr mer än nu.
+  const fore = K.fonsterKostnad(sc.berikade, r.undvikFran.startMs - 900e3, 2, 2.5);
+  assert.ok(fore - r.nu.kr < K.GRANS_KR);
+});
+
+test('bilFonster: kl 05:30 med kända priser är det för sent, inte "priser kl 13"', () => {
+  const b = P.bilFonster(scen(new Array(24).fill(1.0), new Array(24).fill(1.0), '2026-01-15T05:30:00+01:00'));
+  assert.ok(b.forSent && !b.saknas);
+});
+
+test('orderbok: före-rad med billigare tid senare säger "eller", värdet är typiskt påslag', () => {
+  const idag = new Array(24).fill(1.0); idag[16] = idag[17] = idag[18] = idag[19] = idag[20] = 2.0;
+  const imorgon = new Array(24).fill(1.0); imorgon[1] = imorgon[2] = 0.95;
+  const ob = P.orderbok(scen(idag, imorgon, '2026-01-14T14:00:00+01:00'));
+  const tork = ob.rader.find((r) => r.id === 'tork');
+  assert.equal(tork.typ, 'fore');
+  assert.match(tork.huvud, /^starta före kl \d\d:\d\d eller /);
+  assert.ok(tork.varde < 2.5 * 1.0 * 1.25 + 0.01);
 });

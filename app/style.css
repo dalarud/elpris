@@ -164,6 +164,7 @@ ul.enkel li { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding
 .varde { font-weight: 650; white-space: nowrap; }
 .knapp-ikon.liten { padding: 2px 4px; color: var(--dampad); line-height: 1; }
 .paminner { display: inline-flex; align-items: center; gap: 4px; font-size: 0.8rem; color: var(--accent); flex-wrap: wrap; }
+.fler[open] .visa, .fler:not([open]) .dolj { display: none; }
 .fler > summary { cursor: pointer; color: var(--dampad); font-size: 0.88rem; padding: 6px 0; border-top: 1px solid var(--linje); }
 .ingen-roll { margin: 6px 0 0; padding-top: 8px; border-top: 1px solid var(--linje); color: var(--dampad); font-size: 0.9rem; }
 .kontroll { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--linje); display: grid; gap: 6px; font-size: 0.88rem; }

@@ -166,44 +166,59 @@ export function orderbok({ berikade, nuMs, idag, planer }) {
       if (!s.timer && r.undvikFran && r.undvikFran.klocka.datum === idag && r.undvikFran.startMs < r.bast.startMs) {
         detalj.push(`Ska det bli i dag: starta före kl ${foreKl(r.undvikFran)}.`);
       }
-      if (K.iPerioder(dyraKvar, r.bast.startMs, r.bast.startMs + s.timmar * 3600e3)) {
+      const dyrtDa = K.iPerioder(dyraKvar, r.bast.startMs, r.bast.startMs + s.timmar * 3600e3);
+      if (dyrtDa) {
         const kandaTill = berikade.length ? berikade[berikade.length - 1].t0 + berikade[berikade.length - 1].langd * 60e3 : 0;
         detalj.push(kandaTill < nuMs + 24 * 3600e3
           ? 'Dyrt även då – men billigast bland de kända priserna (morgondagens kommer kl 13).'
           : 'Dyrt även då – men billigast inom ett dygn.');
       }
-      rader.push({ id: s.id, namn: s.namn, huvud, kort, detalj, varde: sparar, startMs: r.bast.startMs, syssla: s, r, typ: 'vanta' });
+      rader.push({ id: s.id, namn: s.namn, huvud, kort, detalj, varde: sparar, startMs: r.bast.startMs, syssla: s, r, typ: 'vanta',
+        narAbs: nar(r.bast, idag), basKlocka: bas.klocka, dyrtDa });
     } else if (r.undvikFran && r.nu) {
-      // Värdet är vad det kan kosta att skjuta upp: dyraste tillåtna start efter kl X
-      // (inom de kända priserna, högst 24 h) jämfört med nu.
-      const senare = r.kandidater.filter((c) => (!s.dagtid || c.dagtid) && c.startMs >= r.undvikFran.startMs);
-      const varde = Math.max(...senare.map((c) => c.kr)) - r.nu.kr;
-      const forsta = r.undvikFran.kr - r.nu.kr;
+      // Nu är (nästan) bästa tiden men det blir dyrare om man väntar. Ofta blir det
+      // billigt igen senare (t.ex. i natt): då står det "eller …". Värdet är det typiska
+      // påslaget (median) om man startar under den dyrare sträckan.
+      const lang = s.timmar * 3600e3;
       const fore = foreKl(r.undvikFran);
-      const spann = varde - forsta >= 0.5 ? `${K.tal(forsta)}–${K.kr(varde)}` : `≈ ${K.kr2(forsta)}`;
-      const detalj = [`${K.kr2(r.nu.kr)} nu · efter kl ${fore} ${spann} dyrare`];
-      // Den billigaste tiden kan ligga senare (efter den dyra perioden) men vara
-      // mindre än 1 kr billigare – säg det i stället för att låtsas att nu är bäst.
-      if (r.bast.startMs > r.nu.startMs + 15 * 60e3 && r.nu.kr - r.bast.kr >= 0.25
-        && !K.iPerioder(dyraKvar, r.bast.startMs, r.bast.startMs + s.timmar * 3600e3)) {
-        detalj.push(`Eller ${nar(r.bast, idag)}${s.timer && r.bast.om > 0 ? ` (ställ ${r.bast.om} h)` : ''}: ${K.kr2(r.bast.kr)}.`);
-      }
-      rader.push({ id: s.id, namn: s.namn, huvud: `starta före kl ${fore}`, kort: `före kl ${fore}`, detalj, varde, startMs: Math.floor(r.undvikFran.startMs / 900e3) * 900e3, syssla: s, r, typ: 'fore' });
+      const tillatna = r.kandidater.filter((c) => !s.dagtid || c.dagtid);
+      const tillbaka = tillatna.find((c) => c.startMs > r.undvikFran.startMs && c.kr <= r.nu.kr + 0.25
+        && !K.iPerioder(dyraKvar, c.startMs, c.startMs + lang));
+      const stracka = [r.undvikFran, ...tillatna.filter((c) => c.startMs > r.undvikFran.startMs && (!tillbaka || c.startMs < tillbaka.startMs))];
+      const pa = stracka.map((c) => c.kr - r.nu.kr).sort((a, b) => a - b);
+      const varde = Math.max(r.undvikFran.kr - r.nu.kr, pa[Math.floor((pa.length - 1) / 2)]);
+      const lag = Math.round(pa[0]), hog = Math.round(pa[pa.length - 1]);
+      const spann = lag === hog ? `≈ ${K.kr(pa[0])}` : lag < 1 ? `upp till ≈ ${K.kr(pa[pa.length - 1])}` : `${lag}–${K.kr(pa[pa.length - 1])}`;
+      const ellerKort = tillbaka ? `${nar(tillbaka, idag)}${s.timer && tillbaka.om > 0 ? ` (ställ ${tillbaka.om} h)` : ''}` : null;
+      const sluta = tillbaka ? `–${tillbaka.klocka.txt}` : '';
+      const detalj = [`${K.kr2(r.nu.kr)} nu · start ${tillbaka ? `kl ${fore}${sluta}` : `efter kl ${fore}`}: ${spann} dyrare`];
+      if (tillbaka) detalj.push(`Eller ${ellerKort}: ${K.kr2(tillbaka.kr)}.`);
+      rader.push({ id: s.id, namn: s.namn, huvud: `starta före kl ${fore}${tillbaka ? ` eller ${ellerKort}` : ''}`, kort: `före kl ${fore}`,
+        ellerKort, ellerNar: tillbaka ? nar(tillbaka, idag) : null, detalj, varde, startMs: Math.floor(r.undvikFran.startMs / 900e3) * 900e3, syssla: s, r, typ: 'fore' });
     } else {
       ingenRoll.push(s.bestamd);
     }
   }
   // Värmen: sänk under de dyraste timmarna av återstående dyra perioder (i dag först).
-  const planMedKvar = planer.find((p) => p.dyra.some((d) => d.slutMs > nuMs));
+  // Är morgondagen ett dra ner-dygn visas även morgondagens sänkning, om den är värd något.
+  const delar = Object.fromEntries(planer.map((p) => [p.datum, p.delar]));
+  const varmeRad = (id, v) => {
+    const dag = v.datum === idag ? '' : `${K.dagnamn(v.datum, idag)} `;
+    return { id, namn: 'Värme', huvud: `sänk 2 grader ${dag}kl ${v.fran.txt}–${v.till.txt}`, kort: `${dag}kl ${v.fran.txt}`,
+      narAbs: `${v.datum === idag ? 'i dag ' : dag}kl ${v.fran.txt}–${v.till.txt}`,
+      detalj: ['Huset håller värmen några timmar. Höj igen efteråt.'], varde: v.sparar, startMs: v.franMs, slutMs: v.slutMs, typ: 'varme' };
+  };
   let varmeLite = false;
+  const planMedKvar = planer.find((p) => p.dyra.some((d) => d.slutMs > nuMs));
   if (planMedKvar) {
-    const delar = Object.fromEntries(planer.map((p) => [p.datum, p.delar]));
     const v = K.varmeSankning(planMedKvar.dyra.filter((p) => p.slutMs > nuMs), berikade, delar, nuMs);
-    if (v && v.sparar >= K.GRANS_KR) {
-      const dag = v.datum === idag ? '' : `${K.dagnamn(v.datum, idag)} `;
-      rader.push({ id: 'varme', namn: 'Värme', huvud: `sänk 2 grader ${dag}kl ${v.fran.txt}–${v.till.txt}`, kort: `${dag}kl ${v.fran.txt}`,
-        detalj: ['Huset håller värmen några timmar. Höj igen efteråt.'], varde: v.sparar, startMs: v.franMs, slutMs: v.slutMs, typ: 'varme' });
-    } else varmeLite = true;
+    if (v && v.sparar >= K.GRANS_KR) rader.push(varmeRad('varme', v));
+    else varmeLite = true;
+  }
+  const morgon = planer.find((p) => p.datum !== idag && p.besked === 'draner');
+  if (morgon && morgon !== planMedKvar) {
+    const v = K.varmeSankning(morgon.dyra, berikade, delar, nuMs);
+    if (v && v.sparar >= K.GRANS_KR) { rader.push(varmeRad('varme-imorgon', v)); varmeLite = false; }
   }
   rader.sort((a, b) => b.varde - a.varde);
   const dyrtNu = K.iPerioder(dyraKvar, nuMs);
@@ -233,7 +248,7 @@ export function signal({ planer, berikade, nuMs, idag, orderbok: ob = null }) {
     const till = klockText(k.slutMs, idag);
     const paus = k.pauser.length ? ` (kort paus ${k.pauser.map((x) => `${x.fran.txt}–${x.till.txt}`).join(', ')})` : '';
     const rad = k.startMs <= nuMs ? `Dyrt till ${till}${paus}.` : `Dyrt från kl ${K.lokalKlocka(k.startMs).txt} till ${till}${paus}.`;
-    return { ord: 'Dra ner', klass: 'draner', aktuellt, rad, ids: [] };
+    return { ord: 'Dra ner', klass: 'draner', aktuellt, rad, ids: [], dyrtTill: till, dyrtTillMs: k.slutMs };
   }
   // Bara sysslor som går att köra nu styr signalen (bastu kl 23 jämför bara tider i morgon).
   const rader = ob.rader.filter((r) => r.typ !== 'varme' && r.r?.nu);
@@ -245,8 +260,9 @@ export function signal({ planer, berikade, nuMs, idag, orderbok: ob = null }) {
   const topp = rader[0];
   if (topp.typ === 'vanta') {
     const vanta = rader.filter((r) => r.typ === 'vanta').slice(0, 2);
+    const liten = (t) => t.charAt(0).toLowerCase() + t.slice(1);
     return { ord: 'Vänta', klass: 'vanta', aktuellt, ids: vanta.map((r) => r.id),
-      rad: `${stor(ochLista(vanta.map((r) => `${r.syssla.bestamd} ${r.kort}`)))}.` };
+      rad: `${stor(ochLista(vanta.map((r) => `${liten(r.syssla.verb)} ${r.kort}`)))}.` };
   }
   const fore = rader.filter((r) => r.typ === 'fore');
   const forst = fore.reduce((a, r) => (r.startMs < a.startMs ? r : a));
@@ -263,11 +279,13 @@ export function signal({ planer, berikade, nuMs, idag, orderbok: ob = null }) {
   // Samma tid för alla: "Starta torken och disken före kl 16:00". Olika tider: de två första var för sig.
   const tider = new Set(fore.map((r) => foreKl(r.r.undvikFran)));
   const valda = tider.size === 1 ? fore : [...fore].sort((a, c) => a.startMs - c.startMs).slice(0, 2);
-  const vad = tider.size === 1
+  const eller = valda.some((r) => r.ellerKort);
+  const vad = tider.size === 1 && !eller
     ? `${ochLista(fore.map((r) => r.syssla.bestamd))} före kl ${foreKl(forst.r.undvikFran)}`
-    : ochLista(valda.map((r) => `${r.syssla.bestamd} före kl ${foreKl(r.r.undvikFran)}`));
-  return { ord: 'Kör nu', klass: 'kor', aktuellt, ids: valda.map((r) => r.id),
-    rad: dyrtNu ? `Dyrt nu, men dyrare senare: starta ${vad}.` : `Starta ${vad} – sedan blir det dyrare.` };
+    : ochLista(valda.map((r) => `${r.syssla.bestamd} före kl ${foreKl(r.r.undvikFran)}${r.ellerKort ? ` eller ${r.ellerKort}` : ''}`));
+  const sedan = eller ? 'däremellan blir det dyrare' : 'sedan blir det dyrare';
+  return { ord: 'Kör nu', klass: 'kor', aktuellt, ids: (tider.size === 1 && !eller ? fore : valda).map((r) => r.id),
+    rad: dyrtNu ? `Dyrt nu, men dyrare senare: starta ${vad}.` : `Starta ${vad} – ${sedan}.` };
 }
 
 /** "kl 16:00", "i morgon kl 22:15", "i morgon kl 24:00" (midnatt räknas till dygnet som slutar). */
@@ -278,13 +296,18 @@ function klockText(ms, idag) {
 }
 
 /**
- * Orderbokens rader som korta råd med klockslag, t.ex. för notisen:
- * "kör torken i natt kl 02:00 (ställ 12 h)", "basta i dag före kl 15:30".
+ * Orderbokens rader som korta råd med absoluta klockslag, för notisen (som kan läsas
+ * långt senare – därför ingen "ställ N h" och inget "nu"):
+ * "Kör torken i natt kl 02:00 – ställ timern så att den startar då (≈ 3 kr billigare än kl 13:40)".
  */
-export function radText(r, idag) {
-  if (r.typ === 'varme') return `Sänk värmen 2 grader ${r.kort.replace(/^kl/, 'i dag kl')} (≈ ${K.kr(r.varde)})`;
-  if (r.typ === 'fore') return `${r.syssla.verb} i dag ${r.kort} (annars upp till ≈ ${K.kr(r.varde)} mer)`;
-  return `${r.syssla.verb} ${r.kort} (≈ ${K.kr(r.varde)} billigare än kl ${K.lokalKlocka(r.r.nu?.startMs ?? r.startMs).txt})`;
+export function radText(r) {
+  if (r.typ === 'varme') return `Sänk värmen 2 grader ${r.narAbs} (≈ ${K.kr(r.varde)})`;
+  if (r.typ === 'fore') {
+    return `${r.syssla.verb} i dag före kl ${foreKl(r.r.undvikFran)}${r.ellerNar ? ` eller ${r.ellerNar}` : ''} (annars ≈ ${K.kr(r.varde)} mer)`;
+  }
+  const timer = r.syssla.timer && r.r.bast.om > 0 ? ' – ställ timern så att den startar då' : '';
+  const dyrt = r.dyrtDa ? ', dyrt även då men billigast' : '';
+  return `${r.syssla.verb} ${r.narAbs}${timer} (≈ ${K.kr(r.varde)} billigare än kl ${r.basKlocka.txt}${dyrt})`;
 }
 
 // ------------------------------------------------------ bil och värmepump ----
@@ -307,7 +330,7 @@ export function bilFonster({ berikade, nuMs, inst }) {
   if (!sista || sista.t0 + sista.langd * 60e3 < nattSlut) return { saknas: true, kwh };
   const r = K.planera(berikade, nuMs, { id: 'bil', namn: 'Bil', kwh, timmar, timer: false }, { maxTimmar: 24 });
   const natt = (r?.kandidater ?? []).filter((c) => c.startMs >= nattStart && c.startMs + timmar * 3600e3 <= nattSlut);
-  if (!natt.length) return { saknas: true, kwh };
+  if (!natt.length) return { forSent: true, kwh };
   const bast = K.billigast(natt);
   const kl18 = r.kandidater.find((c) => c.klocka.timme === 18 && c.klocka.minut === 0 && c.startMs < bast.startMs);
   return { kwh, bast, txt: `${K.narOrd(bast.klocka, k.datum)} ${bast.klocka.txt}–${bast.slut.txt}`,
@@ -392,7 +415,9 @@ export function utvarderaOrder(order, berikade, nuMs) {
   const overTak = harTak && prisKwh > order.maxPris;
   const sparar = nu ? nu.kr - bast.kr : null;
   if (facit || !overTak) {
-    return { status: bast.startMs <= nuMs + 60e3 ? 'dags' : 'planerad', s, start: bast, prisKwh, facit, overTak, sparar };
+    // "Dags" när bästa tid är nu – för bastu och ugn (prövas i hela kvartar) nästa kvart.
+    const dags = bast.startMs <= nuMs + 60e3 || (bast === tillatna[0] && bast.startMs - nuMs <= 15 * 60e3);
+    return { status: dags ? 'dags' : 'planerad', s, start: bast, prisKwh, facit, overTak, sparar };
   }
   return { status: 'vantar', s, reserv: bast, prisKwh, kandSlut, overTak, sparar };
 }
@@ -410,7 +435,7 @@ export function utvarderaOrder(order, berikade, nuMs) {
  *  - typ 'fore' (starta före kl X): 30 min före X.  typ 'varme': vid start.
  * null om tiden ligger för nära (< 2 min), är på natten eller längre fram än 3 dygn.
  */
-export function paminnelse({ namn, bestamd, startMs, timer, typ = 'vanta', slutMs = null }, nuMs) {
+export function paminnelse({ namn, bestamd, startMs, timer, typ = 'vanta', slutMs = null, eller = null }, nuMs) {
   const start = K.lokalKlocka(startMs);
   const vem = bestamd ?? namn.toLowerCase();
   let narMs, meddelande;
@@ -419,9 +444,10 @@ export function paminnelse({ namn, bestamd, startMs, timer, typ = 'vanta', slutM
     meddelande = `Sänk värmen 2 grader nu${slutMs ? ` och höj igen kl ${K.lokalKlocka(slutMs).txt}` : ''} – huset håller värmen.`;
   } else if (typ === 'fore') {
     narMs = startMs - 30 * 60e3;
-    meddelande = `Starta ${vem} före kl ${start.txt} – sedan blir det dyrare.`;
-  } else if (timer && (start.timme >= 22 || start.timme < 7)) {
-    const kl22 = lokalMs(start.timme < 7 ? K.laggTillDagar(start.datum, -1) : start.datum, '22:00');
+    meddelande = eller ? `Starta ${vem} före kl ${start.txt} eller vänta till ${eller} – däremellan är det dyrare.`
+      : `Starta ${vem} före kl ${start.txt} – sedan blir det dyrare.`;
+  } else if (timer && (start.timme >= 22 || start.timme < 7 || K.lokalKlocka(startMs - 15 * 60e3).timme < 7)) {
+    const kl22 = lokalMs(start.timme < 8 ? K.laggTillDagar(start.datum, -1) : start.datum, '22:00');
     const h = Math.ceil((startMs - kl22 + 1) / 3600e3);
     narMs = startMs - h * 3600e3;
     meddelande = `Ställ ${vem} på fördröjd start ${h} h nu (kl ${K.lokalKlocka(narMs).txt}), så startar den kl ${start.txt}.`;

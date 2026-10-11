@@ -34,7 +34,7 @@ Här samlas beslut (B), antaganden (A) och öppna frågor (F) i den ordning de u
 | B26 | 2026-10-09 | **Kursvy bakom tryck** och zonremsa med vad-om i startvyn. | Användarens val. | Bara remsa; kursvy direkt på svängiga dygn. |
 | B27 | 2026-10-09 | **Påminnelser och egna ordrar.** Påminnelse = schemalagt ntfy-meddelande från webbläsaren (≤ 3 dygn, sekvens-id så att det kan flyttas eller tas bort). Order = syssla + klar senast + pristak (förslag: 25:e percentilen) med bästa kända tid som reserv. | Användarens val. Limitregeln tog 82 % av vinsten i analysen; med kända priser används facit. | Bara notis kl 13:40 (varv 2-läget). |
 | B28 | 2026-10-09 | Notisen bygger på dagsplanen och skickas bara på dra ner-dygn. | Samma beräkning i appen och notisen. *(Rättelse 2026-10-10: samma commit ändrade av misstag en korrekt rad så att notisen räknade med 7 °C som normaltemperatur; rättat i B29.)* | — |
-| B29 | 2026-10-10 | **Rättningar efter granskningen av varv 3** (36 bekräftade fynd, se 07-daytrader.md §7). Bl.a.: notisen läser temperaturfilen som appen (lasTemp); signalen härleds ur orderboken och tar bara med sysslor som går att köra nu; Dra ner i morgon använder orderbokens beslut och undviker alla kända dyra perioder; påminnelsens text skrivs för när den kommer fram och läggs aldrig kl 22–07; påminnelser flyttas bara vid ≥ 1 h (timer) eller ≥ 30 min ändring; tidigaste start inom max(5 öre, 2 %); bilens fönster i den pågående natten; pristak över facit sägs ut. | Granskarna visade att appen och notisen gav olika besked 16 dygn/år, att påminnelser kunde hamna mitt i natten med fel instruktion och att signalen sa emot orderboken. | — |
+| B29 | 2026-10-10 | **Rättningar efter granskningen av varv 3** (36 bekräftade fynd, se 07-daytrader.md §7). Bl.a.: notisen läser temperaturfilen som appen (lasTemp); signalen härleds ur orderboken och tar bara med sysslor som går att köra nu; den separata Dra ner i morgon-listan är borttagen – råden står bara i orderboken, och notisen använder orderbokens rader; påminnelsens text skrivs för när den kommer fram och läggs aldrig kl 22–07; påminnelser flyttas bara vid ≥ 1 h (timer) eller ≥ 30 min ändring; tidigaste start inom max(5 öre, 2 %); bilens fönster i den pågående natten; pristak över facit sägs ut. | Granskarna visade att appen och notisen gav olika besked 16 dygn/år, att påminnelser kunde hamna mitt i natten med fel instruktion och att signalen sa emot orderboken. | — |
 
 ## Kända fakta om hushållet (från användaren 2026-10-08)
 
@@ -62,7 +62,7 @@ Här samlas beslut (B), antaganden (A) och öppna frågor (F) i den ordning de u
 | A9 | Elhandlarens påslag | 4 öre/kWh + 49 kr/mån | Elräkningens storlek (inte tidsvärdet) |
 | A10 | Bensin | 19 kr/l, 0,65 l/mil i hybridläge; el 2 kWh/mil | Brytpunkt el eller bensin |
 | A11 | Sysslor (varv 3) | Tvätt 1,0 kWh/2 h, tork 2,5/2, disk 1,0/3 (timer); bastu 7/2 kl 10–21, ugn 1,5/1 kl 10–20 | Orderbokens tider och belopp |
-| A12 | Körningar per vecka (efterhandstest) | Tvätt 4, tork 3, disk 5, bastu 1, ugn 4 | Orderbokens värde ≈ 1 160 kr/år |
+| A12 | Körningar per vecka (efterhandstest) | Tvätt 4, tork 3, disk 5, bastu 1, ugn 4 | Orderbokens värde ≈ 1 120 kr/år |
 | A13 | Bilens laddning (orderbokens kontrollrad) | 2 500 kWh/år = 6,8 kWh/natt vid 3,7 kW, kl 22–07 | Laddfönstret som visas |
 
 ## Öppna frågor
