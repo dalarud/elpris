@@ -512,7 +512,7 @@ export function billigast(lista) {
 }
 
 /**
- * Starter som inte skjuter upp i onödan: en start minst 12 h bort tas bort om en
+ * Starter som inte skjuter upp i onödan: en start mer än 12 h bort tas bort om en
  * start minst 12 h tidigare – eller inom de första 12 timmarna – kostar högst 25 öre
  * eller 10 % mer (samma gräns som dagtidsalternativet). Tvätten ska inte vänta till
  * i morgon för 9 öre. Starter inom 12 h från den första tas aldrig bort.
@@ -523,8 +523,8 @@ export function utanOnodigVantan(lista) {
   const nara = sorterad[0].startMs + 12 * 3600e3;
   let j = 0, minTidigare = Infinity;
   return sorterad.filter((c) => {
-    if (c.startMs < nara) return true;
-    const grans = Math.max(nara - 1, c.startMs - 12 * 3600e3);
+    if (c.startMs <= nara) return true;   // exakt 12 h ("ställ 12 h") räknas som inom 12 h
+    const grans = Math.max(nara, c.startMs - 12 * 3600e3);
     while (j < sorterad.length && sorterad[j].startMs <= grans) minTidigare = Math.min(minTidigare, sorterad[j++].kr);
     return !(minTidigare - c.kr < Math.max(0.25, 0.1 * minTidigare));
   });

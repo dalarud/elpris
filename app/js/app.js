@@ -15,7 +15,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const stor = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 /** Bryt inte raden mitt i "kl 15:45", "ställ 9 h", "≈ 2 kr" eller "15:45–23:00". */
-const ihop = (t) => String(t).replace(/kl (\d)/g, 'kl\u00a0$1').replace(/(\d) h\b/g, '$1\u00a0h')
+const ihop = (t) => String(t).replace(/(kl|ställ) (\d)/g, '$1\u00a0$2').replace(/(\d) h\b/g, '$1\u00a0h')
   .replace(/≈ /g, '≈\u00a0').replace(/(\d\d:\d\d)–(\d\d:\d\d)/g, '$1\u2060–\u2060$2');
 const MANADER = ['januari', 'februari', 'mars', 'april', 'maj', 'juni', 'juli', 'augusti', 'september', 'oktober', 'november', 'december'];
 const KORT_DAG = ['mån', 'tis', 'ons', 'tor', 'fre', 'lör', 'sön'];
@@ -49,12 +49,14 @@ function spara(nyckel, v) {
 // Tar bara över värden som ser ut som Elkollens – origin delas med andra projekt.
 const SER_UT_SOM_INSTALLNINGAR = (v) => VANLIGT_OBJEKT(v) && ['arsforbrukning', 'natTariff', 'paslagOre', 'ntfyAmne'].some((k) => k in v);
 try {
-  // Inställningarna flyttas när de saknas med prefix, även om resten redan flyttats
-  // (en tidigare flytt kände inte igen dem).
-  const gamla = localStorage.getItem('installningar');
-  if (gamla !== null && localStorage.getItem(PREFIX + 'installningar') === null) {
+  // Inställningar och mätvärden (det som fanns i versionen på Pages) flyttas när de
+  // saknas med prefix, även om resten redan flyttats (en tidigare flytt missade dem).
+  const ARV = { installningar: SER_UT_SOM_INSTALLNINGAR, matvarden: (v) => VANLIGT_OBJEKT(v) && VANLIGT_OBJEKT(v.statistik) };
+  for (const [k, ok] of Object.entries(ARV)) {
+    const gamla = localStorage.getItem(k);
+    if (gamla === null || localStorage.getItem(PREFIX + k) !== null) continue;
     let v = null; try { v = JSON.parse(gamla); } catch { /* inte Elkollens */ }
-    if (SER_UT_SOM_INSTALLNINGAR(v)) { localStorage.setItem(PREFIX + 'installningar', gamla); localStorage.removeItem('installningar'); }
+    if (ok(v)) { localStorage.setItem(PREFIX + k, gamla); localStorage.removeItem(k); }
   }
   if (localStorage.getItem(PREFIX + 'flyttad') === null) {
     const ser = {
@@ -82,9 +84,12 @@ function laddaInstallningar() {
   // Bara fält med samma typ som standardvärdet (ett tal som sträng skulle ge NaN kr överallt).
   const sparat = Object.fromEntries(Object.entries(lasLokalt('installningar', {}, VANLIGT_OBJEKT))
     .filter(([k, v]) => !(k in K.STANDARD) || (typeof v === typeof K.STANDARD[k] && (typeof v !== 'number' || Number.isFinite(v)))));
+  const tal = (v) => Object.fromEntries(Object.entries(VANLIGT_OBJEKT(v) ? v : {}).filter(([, x]) => Number.isFinite(x)));
   return { ...K.STANDARD, ...sparat,
-    natFastKrManad: { ...K.STANDARD.natFastKrManad, ...(VANLIGT_OBJEKT(sparat.natFastKrManad) ? sparat.natFastKrManad : {}) },
-    overforing: { ...K.STANDARD.overforing, ...(VANLIGT_OBJEKT(sparat.overforing) ? sparat.overforing : {}) } };
+    natFastKrManad: { ...K.STANDARD.natFastKrManad, ...tal(sparat.natFastKrManad) },
+    overforing: { ...K.STANDARD.overforing, ...tal(sparat.overforing) },
+    // Ändras inte i formuläret – alltid standard (trasiga värden stoppade sidan).
+    tidHoglast: K.STANDARD.tidHoglast, plats: K.STANDARD.plats };
 }
 
 const SYSSLA_ID = new Set(K.SYSSLOR.map((s) => s.id));
@@ -153,6 +158,11 @@ async function start() {
     senastKvart = -1;   // försök igen när appen tas fram
     clearTimeout(nyttForsok);
     nyttForsok = setTimeout(() => { if (document.visibilityState === 'visible') start(); }, 60e3);
+    // Efter midnatt finns det nya dygnets priser redan om de hämtades i går eftermiddag.
+    if (senast && senast.idag !== idag && senast.imorgon === idag && senast.planer.length > 1) {
+      const planer = senast.planer.slice(1);
+      senast = { ...senast, idag, imorgon, pImorgon: null, planer, ref: planer[0].ref, berikade: planer.flatMap((p) => p.kvartar) };
+    }
     if (senast?.idag === idag) {
       // Dagens priser finns redan: räkna om med ny tid så att signalen och raderna stämmer nu.
       try { senast.nu = nu; ritaAllt(); } catch (e2) { console.error(e2); }
@@ -271,7 +281,7 @@ function visaSignal(s) {
   const planI = planer.find((p) => p.datum === s.imorgon);
   const morgonDag = KORT_DAG[K.veckodag(s.imorgon)];
   let morgon;
-  if (!pImorgon) morgon = '<p class="morgon dampad">I morgon: priserna kommer kl 13.</p>';
+  if (!pImorgon) morgon = sig.forbehall ? '' : '<p class="morgon dampad">I morgon: priserna kommer kl 13.</p>';
   else if (planI.besked === 'lugnt') morgon = `<p class="morgon"><span class="besked-ord lugnt">Lugnt</span> i morgon ${morgonDag} – inget dyrt (${K.tal(planI.min, 2)}–${K.tal(planI.max, 2)} kr/kWh).</p>`;
   else if (planI.besked === 'svangigt') morgon = `<p class="morgon"><span class="besked-ord svangigt">Svängigt</span> i morgon ${morgonDag} – dyrt ${P.tiderText(planI.dyra)}, men det kostar huset bara ≈ ${K.kr(Math.max(0, planI.extra))} extra.</p>`;
   else morgon = `<p class="morgon"><span class="besked-ord draner">Dra ner</span> i morgon ${P.tiderText(planI.dyra)} – huset ≈ ${K.kr(planI.extra)} över normalt.</p>`;
@@ -282,10 +292,10 @@ function visaSignal(s) {
       <span class="signal-pris">nu <strong>${K.krKwh(sig.aktuellt.total)}</strong><span class="dampad"> · normalt ${K.krKwh(ref.totalMedian)}</span></span></div>
     <p class="signal-text">${esc(ihop(sig.rad))}</p>
     ${remsa(syns, fran, planer)}
-    <p class="forklaring">${forklaring.join('') || '<span class="dampad">Inga dyra eller billiga perioder framför dig.</span>'}</p>
+    <p class="forklaring">${ihop(forklaring.join('')) || '<span class="dampad">Inga dyra eller billiga perioder framför dig.</span>'}</p>
     <div id="vadom" aria-live="polite">${vadOmText(s)}</div>
     <details class="kurs" id="kurs"${kursOppen ? ' open' : ''}><summary>Visa kursen</summary>${kursvy(syns, planer, ref, idag)}</details>
-    ${morgon}`;
+    ${ihop(morgon)}`;
   // Skärmläsare: bara signalordet och raden läses upp, och bara när de ändras.
   const live = `${sig.ord}. ${sig.rad}`;
   if ($('#signal-live').textContent !== live) $('#signal-live').textContent = live;
@@ -450,15 +460,28 @@ document.addEventListener('toggle', (e) => {
 // --------------------------------------------------------- 3. orderboken ----
 
 /** Påminnelse för en orderboksrad eller en order (text och tid skrivs för när den kommer fram). */
+/** Vad en påminnelse för raden gäller: { startMs, typ, timer } (en "helst"-rad: helst-tiden). */
+const pamMal = (r) => r.pam ?? { startMs: r.startMs, typ: r.typ, timer: Boolean(r.syssla?.timer) && r.typ === 'vanta' };
+
 function paminnelseFor(r, nuMs) {
   if (!r?.startMs) return null;
-  return P.paminnelse({ namn: r.namn, bestamd: r.syssla?.bestamd, startMs: r.startMs, slutMs: r.slutMs ?? null,
-    timer: Boolean(r.syssla?.timer) && r.typ === 'vanta', typ: r.typ, ellerMs: r.ellerMs ?? null }, nuMs);
+  const m = pamMal(r);
+  return P.paminnelse({ namn: r.namn, bestamd: r.syssla?.bestamd, startMs: m.startMs, slutMs: r.slutMs ?? null, timer: m.timer, typ: m.typ,
+    ellerMs: m.typ === 'fore' ? r.ellerMs ?? null : null, strackaSlutMs: r.strackaSlutMs ?? null }, nuMs);
 }
 
 const aktivaPaminnelser = () => Object.values(paminnelser).filter((p) => p.narMs > Date.now());
 const hittaPaminnelse = (nyckel) => aktivaPaminnelser().find((x) => x.nyckel === nyckel);
-const paminnerTxt = (pam, idag) => `<span class="paminner">${KLOCKA} påminner ${esc(K.narOrd(K.lokalKlocka(pam.narMs), idag))} kl ${K.lokalKlocka(pam.narMs).txt} · <button type="button" class="lank" data-pamin-bort="${esc(pam.nyckel)}">ta bort</button>${pam.fel ? ` <span class="fel">${esc(pam.fel)}</span>` : ''}</span>`;
+/** "gäller start kl 22:00" när påminnelsen gäller en annan tid än raden visar nu (flyttas först vid ≥ 1 kr). */
+function galler(pam, r, idag) {
+  if (!r || pam.typ === 'varme') return '';
+  // Timermaskiner prövas i hela timmar från "nu", så deras start glider upp till en timme.
+  const m = pamMal(r);
+  if (Math.abs(pam.startMs - m.startMs) < (m.timer ? 60 : 15) * 60e3) return '';
+  const k = K.lokalKlocka(pam.startMs);
+  return ` (gäller ${pam.typ === 'fore' ? 'start före' : 'start'} ${K.narOrd(k, idag)} kl ${k.txt})`;
+}
+const paminnerTxt = (pam, idag, r = null) => `<span class="paminner">${KLOCKA} påminner ${esc(K.narOrd(K.lokalKlocka(pam.narMs), idag))} kl ${K.lokalKlocka(pam.narMs).txt}${esc(galler(pam, r, idag))} · <button type="button" class="lank" data-pamin-bort="${esc(pam.nyckel)}">ta bort</button>${pam.fel ? ` <span class="fel">${esc(pam.fel)}</span>` : ''}</span>`;
 const klockKnapp = (attr, id, p, vad, idag) => `<button type="button" class="knapp-ikon liten" ${attr}="${esc(id)}" aria-label="Påminn mig om ${esc(vad)} ${esc(K.narOrd(p.nar, idag))} kl ${p.nar.txt}" title="Påminn mig ${esc(K.narOrd(p.nar, idag))} kl ${p.nar.txt}">${KLOCKA}</button>`;
 
 function visaOrderbok(s) {
@@ -474,12 +497,12 @@ function visaOrderbok(s) {
   const rad = (r) => {
     const nyckel = `${idag}:${r.id}`;
     const pam = hittaPaminnelse(`rad:${r.id}`);
-    const p = pam ? null : paminnelseFor(r, nu.ms);
+    const p = pam || journal[nyckel] ? null : paminnelseFor(r, nu.ms);
     return `<li class="order-rad">
       <input type="checkbox" data-bock="${esc(r.id)}" aria-label="${esc(r.namn)} gjort"${journal[nyckel] ? ' checked' : ''}>
       <div class="rad-text"><span><strong>${esc(r.namn)}</strong> ${esc(ihop(r.huvud))}</span>
         ${r.detalj.map((d) => `<span class="dampad">${esc(ihop(d))}</span>`).join('')}
-        ${pam ? paminnerTxt(pam, idag) : pamNot[`rad:${r.id}`] ? `<span class="paminner">${esc(pamNot[`rad:${r.id}`])}</span>` : ''}</div>
+        ${pam ? paminnerTxt(pam, idag, r) : pamNot[`rad:${r.id}`] ? `<span class="paminner">${esc(pamNot[`rad:${r.id}`])}</span>` : ''}</div>
       <span class="varde">≈&nbsp;${K.kr(r.varde)}</span>
       ${p ? klockKnapp('data-pamin', r.id, p, r.namn.toLowerCase(), idag) : '<span></span>'}
     </li>`;
@@ -488,7 +511,10 @@ function visaOrderbok(s) {
   // Rader värda ≈ 2 kr eller mer syns, liksom de signalen nämner, dagens värmeråd på
   // ett dra ner-dygn och "starta före" som kan kosta ≈ 5 kr mer eller värre. Resten
   // (≈ 1 kr var) fälls ihop – men bara om något syns och minst två fälls ihop.
-  const namnda = new Set([...(s.signal?.ids ?? []), ...(draner ? [`varme-${idag}`] : [])]);
+  // Kl 13:40 dagen före ett dra ner-dygn får mobilen orderbokens tre översta råd – de ska synas här.
+  const notisDag = planer.some((p) => p.datum === s.imorgon && p.besked === 'draner');
+  const namnda = new Set([...(s.signal?.ids ?? []), ...(draner ? [`varme-${idag}`] : []),
+    ...(notisDag ? ob.rader.slice(0, 3).map((r) => r.id) : [])]);
   let synliga = ob.rader.filter((r) => Math.round(r.varde) >= 2 || namnda.has(r.id) || Math.round(r.varst ?? 0) >= 5);
   let fler = ob.rader.filter((r) => !synliga.includes(r));
   if (!synliga.length || fler.length < 2) { synliga = ob.rader; fler = []; }
@@ -500,7 +526,7 @@ function visaOrderbok(s) {
   if (draner && ob.dyrtNu && synliga.some((r) => r.typ === 'fore' && !r.helstHuvud)) ingen.unshift('Det är dyrt nu också, men ännu dyrare senare för raderna "starta före".');
   if (!ob.rader.length && draner) ingen.unshift('Inget att flytta – det mesta är värmepumpen.');
   if (ob.varmeLite) ingen.push(`Att sänka värmen ger under 1 kr${draner ? ' i dag – det är dyrt även efteråt' : ''}.`);
-  if (ob.utanMorgon && ob.rader.some((r) => r.typ === 'fore')) {
+  if (ob.utanMorgon && !s.signal?.forbehall && ob.rader.some((r) => r.typ === 'fore')) {
     ingen.push(`Listan räknar bara med de kända priserna – morgondagens ${nu.timme < 13 ? 'kommer kl 13' : 'är inte publicerade än'} och kan ge en billigare tid.`);
   }
 
@@ -530,8 +556,8 @@ function visaOrderbok(s) {
     ${ingen.length ? `<p class="ingen-roll">${esc(ingen.join(' '))}</p>` : ''}
     ${losa.length ? `<ul class="losa">${losa.map((p) => `<li>${esc(p.titel.replace(/^Elkollen: /, ''))}: ${paminnerTxt(p, idag)}</li>`).join('')}</ul>` : ''}
     <ul class="kontroll">
-      ${bilTxt ? `<li>${bilTxt}</li>` : ''}
-      <li>${vpTxt} <a href="#smart-price" data-oppna-mer>Smart Price ›</a></li>
+      ${bilTxt ? `<li>${ihop(bilTxt)}</li>` : ''}
+      <li>${ihop(vpTxt)} <a href="#smart-price" data-oppna-mer>Smart Price ›</a></li>
     </ul>
     ${visaOrdrar(s)}
     ${lagringFel ? '<p class="fel">Ordrar, bockar och påminnelser sparas inte i den här webbläsaren (lagringen är full eller blockerad).</p>' : ''}
@@ -585,7 +611,7 @@ function visaOrdrar(s) {
     } else if (u.status === 'utanfor-tid') status = `${stor(u.s.bestamd)} föreslås bara kl ${u.s.fran}–${u.s.klar} – välj en senare tid.`;
     else status = 'Hinner inte före din tid – ta bort ordern.';
     const tak = u.overTak && u.status !== 'vantar'
-      ? `<span class="over-tak">Över ditt tak ${K.krKwh(o.maxPris)} – det här är det billigaste möjliga före din tid. Kör ändå eller ta bort ordern.</span>` : '';
+      ? `<span class="over-tak">Över ditt tak ${K.krKwh(o.maxPris)} – ingen tid före din tid klarar det, det här är den bästa. Kör ändå eller ta bort ordern.</span>` : '';
     const pam = hittaPaminnelse(`order:${o.id}`);
     const som = orderSomRad(o, u);
     const p = !pam && som ? paminnelseFor(som, nu.ms) : null;
@@ -593,7 +619,7 @@ function visaOrdrar(s) {
       <input type="checkbox" data-order-klar="${esc(o.id)}" aria-label="${esc(u.s.namn)} gjort">
       <div class="rad-text"><span><strong>${esc(u.s.namn)}</strong> <span class="dampad">${esc(villkor)}</span></span>
         <span>${status}</span>${tak}
-        ${pam ? paminnerTxt(pam, idag) : pamNot[`order:${o.id}`] ? `<span class="paminner">${esc(pamNot[`order:${o.id}`])}</span>` : ''}</div>
+        ${pam ? paminnerTxt(pam, idag, som) : pamNot[`order:${o.id}`] ? `<span class="paminner">${esc(pamNot[`order:${o.id}`])}</span>` : ''}</div>
       <button type="button" class="knapp-ikon liten" data-order-bort="${esc(o.id)}" aria-label="Ta bort ordern" title="Ta bort ordern">✕</button>
       ${p ? klockKnapp('data-pamin-order', o.id, p, u.s.namn.toLowerCase(), idag) : '<span></span>'}
     </li>`;
@@ -625,7 +651,10 @@ function uppdateraTak(forsta = false) {
   const f = $('#orderform');
   const senastMs = P.lokalMs(f.dag.value, f.tid.value);
   const sista = senast?.berikade.at(-1);
-  const kanda = sista && senastMs <= sista.t0 + sista.langd * 60e3;
+  const syssla = K.SYSSLOR.find((x) => x.id === f.syssla.value);
+  // Kända priser räcker när de når senast-tiden – eller när nästa dygn inte kan ge en
+  // tillåten tid (t.ex. bastu klar före kl 11).
+  const kanda = sista && syssla && !P.kanKommaTid(syssla, sista.t0 + sista.langd * 60e3, senastMs);
   const p25 = senast?.ref.p25;
   const forslag = Number.isFinite(p25) ? Math.round(p25 * 20) / 20 : null;
   f.maxPris.disabled = Boolean(kanda);
@@ -633,7 +662,7 @@ function uppdateraTak(forsta = false) {
   else if (forsta || f.maxPris.value === '') f.maxPris.value = forslag === null ? '' : K.tal(forslag, 2);
   $('#order-tips').classList.remove('fel');
   $('#order-tips').textContent = kanda
-    ? 'Alla priser fram till din tid är kända – ordern körs på den billigaste tiden, inget tak behövs.'
+    ? 'Priserna som kan påverka ordern är kända – den körs på bästa tiden, inget tak behövs.'
     : forslag === null ? 'Lämna tomt för bästa tid utan tak.'
       : `Priserna efter de kända är okända. Förslaget ${K.krKwh(forslag)} är ungefär den nivå som en fjärdedel av kvartarna senaste 30 dygnen låg under. Lämna tomt för bästa tid utan tak.`;
 }
@@ -783,9 +812,9 @@ function foljKr(berikade, syssla, typ, startMs) {
 /**
  * Flyttar en påminnelse (samma sekvens ersätter den gamla hos ntfy) bara när det
  * kostar minst GRANS_KR mer att följa den gamla än radens råd nu – även när raden
- * bytt sort (t.ex. "starta före" som blivit "vänta"). Värmeråd flyttas om tiden
- * ändrats minst 30 min. Påminnelser som ska gå inom 10 minuter rörs inte. Finns
- * ingen giltig tid för det nya rådet tas en påminnelse som blivit dyr att följa bort.
+ * bytt sort (t.ex. "starta före" som blivit "vänta"). Värmeråd flyttas inte.
+ * Påminnelser som ska gå inom 10 minuter rörs inte. Finns ingen giltig tid för det
+ * nya rådet tas en påminnelse som blivit dyr att följa bort.
  */
 async function synkaPaminnelser(s) {
   const nuMs = Date.now();
@@ -800,19 +829,18 @@ async function synkaPaminnelser(s) {
     const r = rader.get(pam.nyckel);
     // Ingen rad (t.ex. "spelar ingen roll" nu), inget ämne eller snart dags: behåll påminnelsen.
     if (!r || !pam.amne || pam.narMs < nuMs + 10 * 60e3) continue;
-    let flytta;
-    if (r.typ === 'varme' || pam.typ === 'varme') flytta = r.typ === pam.typ && Math.abs(pam.startMs - r.startMs) >= 30 * 60e3;
-    else {
-      const gammal = foljKr(s.berikade, r.syssla, pam.typ ?? r.typ, pam.startMs);
-      const ny = foljKr(s.berikade, r.syssla, r.typ, r.startMs);
-      flytta = gammal !== null && ny !== null && gammal - ny >= K.GRANS_KR;
-    }
-    if (!flytta) continue;
+    // Värmeråd rörs inte: fönstret glider med klockan när perioden pågår, och dygnets
+    // dyra perioder är låsta – påminnelsen gäller fortfarande när den kommer.
+    if (r.typ === 'varme' || pam.typ === 'varme') continue;
+    const m = pamMal(r);
+    const gammal = foljKr(s.berikade, r.syssla, pam.typ ?? m.typ, pam.startMs);
+    const ny = foljKr(s.berikade, r.syssla, m.typ, m.startMs);
+    if (gammal === null || ny === null || gammal - ny < K.GRANS_KR) continue;
     const p = paminnelseFor(r, nuMs);
     try {
       if (p) {
         await ntfy('POST', pam.server, '/', P.ntfyKropp(pam.amne, pam.sekvens, pam.titel, p, location.href.split('#')[0]));
-        Object.assign(pam, { narMs: p.narMs, startMs: r.startMs, typ: r.typ });
+        Object.assign(pam, { narMs: p.narMs, startMs: m.startMs, typ: m.typ });
         delete pamNot[pam.nyckel];
       } else if (await avbrytPaminnelse(pam.nyckel)) {
         pamNot[pam.nyckel] = 'Påminnelsen togs bort – rådet har ändrats, se raden.';
@@ -828,7 +856,7 @@ document.addEventListener('click', (e) => {
   if (knapp && senast) {
     const r = senast.orderbok.rader.find((x) => x.id === knapp.dataset.pamin);
     const p = r && paminnelseFor(r, Date.now());
-    if (p) laggPaminnelse(`rad:${r.id}`, `Elkollen: ${r.namn}`, p, r.startMs, r.typ);
+    if (p) laggPaminnelse(`rad:${r.id}`, `Elkollen: ${r.namn}`, p, pamMal(r).startMs, pamMal(r).typ);
     return;
   }
   const ok = e.target.closest('[data-pamin-order]');
@@ -836,7 +864,7 @@ document.addEventListener('click', (e) => {
     const o = ordrar.find((x) => x.id === ok.dataset.paminOrder);
     const r = o && orderSomRad(o, P.utvarderaOrder(o, senast.berikade, Date.now()));
     const p = r && paminnelseFor(r, Date.now());
-    if (p) laggPaminnelse(`order:${o.id}`, `Elkollen: ${r.namn}`, p, r.startMs, r.typ);
+    if (p) laggPaminnelse(`order:${o.id}`, `Elkollen: ${r.namn}`, p, pamMal(r).startMs, pamMal(r).typ);
     return;
   }
   const bort = e.target.closest('[data-pamin-bort]');
@@ -1042,7 +1070,7 @@ $('#installningar').addEventListener('close', () => {
         ? senast.orderbok.rader.find((x) => `rad:${x.id}` === vantande)
         : (() => { const o = ordrar.find((x) => `order:${x.id}` === vantande); return o && orderSomRad(o, P.utvarderaOrder(o, senast.berikade, Date.now())); })();
       const p = r && paminnelseFor(r, Date.now());
-      if (p) laggPaminnelse(vantande, `Elkollen: ${r.namn}`, p, r.startMs, r.typ);
+      if (p) laggPaminnelse(vantande, `Elkollen: ${r.namn}`, p, pamMal(r).startMs, pamMal(r).typ);
       else alert('Tiden för påminnelsen har passerat eller planen har ändrats – titta på listan igen.');
     });
   } else {

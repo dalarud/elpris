@@ -33,8 +33,8 @@ Vad signalen hade sagt kl 12 (bara dagens priser kända) och kl 20 (även morgon
 | Signal | kl 12 | kl 20 |
 |---|---|---|
 | Dra ner | 66 | 60 |
-| Vänta | 25 | 193 |
-| Kör nu | 249 | 38 |
+| Vänta | 27 | 193 |
+| Kör nu | 247 | 38 |
 | Spelar ingen roll | 26 | 75 |
 
 Signalen härleds ur orderboken. Kontrollerat vid varje tidpunkt: att "Spelar ingen roll" bara visas när inget som går att köra nu är värt ≥ 1 kr, att "Kör nu"/"Vänta" stämmer med orderbokens översta rad, att "helst X, senast före Y" har X före Y och står så i raden, att "Kör nu" i en dyr kvart förklaras, att sysslor som signalen nämner finns i listan och att varje klockslag i signalen står i de raderna. Avvikelser: **0**.
@@ -47,7 +47,7 @@ Beslut kl 18 med kända priser (i dag och i morgon), högst 24 h fram, jämfört
 |---|---|---|---|---|
 | Tvätt (1,0 kWh, 2 h) | 0,76 kr | 106 av 366 | 4 | 159 kr |
 | Tork (2,5 kWh, 2 h) | 1,98 kr | 285 av 366 | 3 | 308 kr |
-| Disk (1,0 kWh, 3 h) | 0,73 kr | 97 av 366 | 5 | 189 kr |
+| Disk (1,0 kWh, 3 h) | 0,73 kr | 97 av 366 | 5 | 190 kr |
 | Bastu (7,0 kWh, 2 h) | 4,63 kr | 290 av 366 | 1 | 241 kr |
 | Ugn (1,5 kWh, 1 h) | 0,97 kr | 166 av 366 | 4 | 203 kr |
 | **Summa** | | | | **1 100 kr** |

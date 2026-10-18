@@ -75,7 +75,7 @@ Se `analys/resultat_varningar.md`.
 | Mått | Resultat |
 |---|---|
 | Dagsbesked | 152 lugna, 148 svängiga, **66 dra ner-dygn** (cirka 1,3 i veckan, flest i nov–feb och aug) |
-| Signal kl 12 | Kör nu 249, Dra ner 66, Spelar ingen roll 26, Vänta 25 dygn |
+| Signal kl 12 | Kör nu 247, Dra ner 66, Vänta 27, Spelar ingen roll 26 dygn |
 | Signal kl 20 | Vänta 193, Spelar ingen roll 75, Dra ner 60, Kör nu 38 dygn |
 | Orderboken, beslut kl 18 | Tork 1,98 kr/körning (raden är värd ≥ 1 kr 285 dygn av 366). Bastu 4,63 kr. Ugn 0,97 kr. Tvätt 0,76 kr. Disk 0,73 kr. Med antagna körningar per vecka (4/3/5/1/4) blir det **≈ 1 100 kr/år**. |
 | Dra ner-dygnen | Huset kostade 3 598 kr över normalt under de dyra perioderna. Att dra ner enligt antagandet sparar ≈ 310 kr/år. |
@@ -142,4 +142,13 @@ Samma dag kontrollerades robustheten och diffen rad för rad (de två granskare 
 - **Orderdialogen** behåller den tid du valt när du byter syssla och stoppar bastu- och ugnsordrar som inte hinner inom sina tider. Ordrar har klockknapp även innan ntfy-ämnet är ifyllt.
 - **Nätfel vid kvartsuppdateringen:** signalen och raderna räknas om med de priser som redan finns, kortet säger att uppdateringen misslyckades, och appen försöker igen efter en minut.
 - **Trasiga data:** tider längre bort än 400 dygn och mätvärden med fel form ignoreras i stället för att stoppa sidan.
+
+En slutkontroll (2026-10-16–18, tre granskare) bekräftade simuleringar över ett år utan avvikelser: signalens klockslag står alltid i raden, notisen är identisk med orderboken kl 13:40, ordrar med tak hamnar aldrig över taket när en tid klarar det, och påminnelser flyttas aldrig för under 1 kr. Motprövningen stoppades av användningsgränsen; fynden prövades i stället ett och ett mot data och i webbläsaren. Rättat:
+- **Exakt 12 h räknas som inom 12 h.** "Ställ 12 h" sorterades förut bort, så torken kunde få "spelar ingen roll" fast den sparade 1,20 kr (2025-10-20 kl 09:30).
+- **Egna ordrar:** ett tak som ingen tid klarar flyttar inte planen (förut upp till 21 h för 3 öre). Bastu och ugn väntar inte på morgondagens priser när de inte kan ge en tillåten tid, och takfältet stängs då av.
+- **Påminnelser:** värmeråd flyttas och tas inte bort av synken – fönstret följer klockan när perioden pågår och påminnelsen gäller ändå. En rad som säger "helst kl 10:30, senast före 14:45" påminner om 10:30. Visar raden en annan tid än påminnelsen står det vilken start påminnelsen gäller. En avbockad rad har ingen klocka.
+- **"Starta före"-raden:** helst-tiden väljs bland tiderna som uppfyller villkoren (förut kunde toleransen välja bort den). "Däremellan" är ersatt med den dyrare sträckan ("kl 16:00–22:30 blir det dyrare"), eftersom en tid mellan sträckans slut och eller-tiden kan vara lika bra.
+- **Signalen:** KÖR NU nämner inte rader som säger "helst …", skriver "Dyrt nu, men dyrare senare: starta …" utan att upprepa "dyrare", och nämner bara den viktigaste raden när texten annars blir lång (p90 120 tecken, en enda över 150 på ett år). Förbehållet före kl 13 står en gång. "Spelar ingen roll" säger "om du väntar upp till 12 timmar", eftersom en tid längre bort kan vara knappt billigare.
+- **Ihopfällningen:** notisens tre råd syns alltid dagen före ett dra ner-dygn. Listan sorteras efter kronor igen (dagens värmeråd flyttas inte före morgondagens; det syns ändå på dra ner-dygn).
+- **Övrigt:** nätfel efter midnatt räknar om med det nya dygnets priser om de redan hämtats. Trasiga inställningar (null, listor, nästlade fält) stoppar inte sidan. "Ställ 9 h" och tidsspann i förklaringen och bilraden bryts inte.
 

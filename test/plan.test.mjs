@@ -295,12 +295,12 @@ test('påminnelse: timerstart kl 07:00 påminns kvällen före; före-rad med "e
   const p = P.paminnelse({ namn: 'Tork', bestamd: 'torken', startMs: Date.parse('2026-01-15T07:00:00+01:00'), timer: true }, Date.parse('2026-01-14T15:00:00+01:00'));
   assert.equal(p.nar.txt, '21:00');
   assert.match(p.meddelande, /fördröjd start 10 h nu \(kl 21:00\)/);
-  const f = P.paminnelse({ namn: 'Tork', bestamd: 'torken', startMs: Date.parse('2026-01-14T16:00:00+01:00'), typ: 'fore', ellerMs: Date.parse('2026-01-15T01:00:00+01:00') }, Date.parse('2026-01-14T14:00:00+01:00'));
-  assert.equal(f.meddelande, 'Starta torken före kl 16:00 eller vänta till i natt kl 01:00 – däremellan är det dyrare.');
+  const f = P.paminnelse({ namn: 'Tork', bestamd: 'torken', startMs: Date.parse('2026-01-14T16:00:00+01:00'), typ: 'fore', ellerMs: Date.parse('2026-01-15T01:00:00+01:00'), strackaSlutMs: Date.parse('2026-01-14T22:30:00+01:00') }, Date.parse('2026-01-14T14:00:00+01:00'));
+  assert.equal(f.meddelande, 'Starta torken före kl 16:00 eller vänta till i natt kl 01:00 – kl 16:00–22:30 är det dyrare.');
   // Trycks kl 20, kommer fram nästa morgon: "eller" samma kväll heter "i kväll", inte "i morgon".
-  const g = P.paminnelse({ namn: 'Tork', bestamd: 'torken', startMs: Date.parse('2025-10-23T07:45:00+02:00'), typ: 'fore', ellerMs: Date.parse('2025-10-23T20:00:00+02:00') }, Date.parse('2025-10-22T20:00:00+02:00'));
+  const g = P.paminnelse({ namn: 'Tork', bestamd: 'torken', startMs: Date.parse('2025-10-23T07:45:00+02:00'), typ: 'fore', ellerMs: Date.parse('2025-10-23T20:00:00+02:00'), strackaSlutMs: Date.parse('2025-10-23T19:00:00+02:00') }, Date.parse('2025-10-22T20:00:00+02:00'));
   assert.equal(g.nar.txt, '07:15');
-  assert.equal(g.meddelande, 'Starta torken före kl 07:45 eller vänta till i kväll kl 20:00 – däremellan är det dyrare.');
+  assert.equal(g.meddelande, 'Starta torken före kl 07:45 eller vänta till i kväll kl 20:00 – kl 07:45–19:00 är det dyrare.');
 });
 
 test('planera: gränsen "starta före" för timermaskiner räknas i kvartar', () => {
@@ -369,4 +369,54 @@ test('orderbok: värmeradens id följer dygnet, så att en påminnelse inte loss
   // Morgondagens råd heter likadant före och efter att dagens dyra period är slut.
   assert.deepEqual(fore.rader.filter((r) => r.typ === 'varme').map((r) => r.id), ['varme-2026-01-14', 'varme-2026-01-15']);
   assert.deepEqual(efter.rader.filter((r) => r.typ === 'varme').map((r) => r.id), ['varme-2026-01-15']);
+});
+
+test('planera: exakt 12 h bort ("ställ 12 h") räknas som inom 12 h', () => {
+  const idag = new Array(24).fill(1.0); idag[20] = 0.75; idag[21] = idag[22] = 0.68; idag[23] = 0.6;
+  const sc = scen(idag, null, '2026-01-14T09:30:00+01:00');
+  const r = K.planera(sc.berikade, sc.nuMs, K.SYSSLOR.find((s) => s.id === 'tork'));
+  const k2030 = r.kandidater.find((c) => c.klocka.txt === '20:30');
+  assert.ok(r.nu.kr - k2030.kr < K.GRANS_KR);           // 11 h bort sparar under 1 kr
+  assert.equal(r.bast.klocka.txt, '21:30');              // 12 h bort sparar minst 1 kr
+  assert.equal(r.bast.om, 12);
+  assert.ok(r.nu.kr - r.bast.kr >= K.GRANS_KR);
+  assert.equal(P.orderbok(sc).rader.find((x) => x.id === 'tork')?.typ, 'vanta');
+});
+
+test('egen order: ett tak som ingen tid klarar flyttar inte planen; bastu väntar inte på priser som inte kan hjälpa', () => {
+  const imorgon = new Array(24).fill(1.0); imorgon[1] = imorgon[2] = 0.30; imorgon[20] = imorgon[21] = 0.29;
+  const sc = scen(new Array(24).fill(1.0), imorgon, '2026-01-14T18:00:00+01:00');
+  const senastMs = Date.parse('2026-01-15T23:00:00+01:00');
+  const utan = P.utvarderaOrder({ syssla: 'tork', senastMs }, sc.berikade, sc.nuMs);
+  const med = P.utvarderaOrder({ syssla: 'tork', senastMs, maxPris: 0.1 }, sc.berikade, sc.nuMs);
+  assert.equal(utan.start.klocka.txt, '01:00');            // 20:00 i morgon är bara någon öre billigare
+  assert.equal(med.start.startMs, utan.start.startMs);
+  assert.ok(med.overTak);
+  // Bastu klar före kl 11 i morgon: morgondagens priser kan inte ge en tid (tidigast 10–12), alltså planeras i dag.
+  const fm = scen(new Array(24).fill(1.0), null, '2026-01-14T09:00:00+01:00');
+  const b = P.utvarderaOrder({ syssla: 'bastu', senastMs: Date.parse('2026-01-15T11:00:00+01:00'), maxPris: 0.1 }, fm.berikade, fm.nuMs);
+  assert.notEqual(b.status, 'vantar');
+  assert.equal(b.start.klocka.datum, '2026-01-14');
+  assert.equal(P.kanKommaTid(K.SYSSLOR.find((s) => s.id === 'bastu'), Date.parse('2026-01-15T00:00:00+01:00'), Date.parse('2026-01-15T11:00:00+01:00')), false);
+  assert.equal(P.kanKommaTid(K.SYSSLOR.find((s) => s.id === 'bastu'), Date.parse('2026-01-15T00:00:00+01:00'), Date.parse('2026-01-15T12:00:00+01:00')), true);
+});
+
+test('signal: KÖR NU tar inte med rader som säger "helst …", och "eller" anger den dyrare sträckan', () => {
+  for (let d = 0; d < 120; d++) {
+    const idag = Array.from({ length: 24 }, (_, h) => 0.6 + 0.5 * Math.sin((h + d) / 3) + (d % 5) * 0.1);
+    const imorgon = Array.from({ length: 24 }, (_, h) => 0.7 + 0.6 * Math.cos((h + 2 * d) / 4));
+    for (const tid of ['08:00', '14:30', '19:30']) {
+      const sc = scen(idag, Number(tid.slice(0, 2)) >= 13 ? imorgon : null, `2026-01-14T${tid}:00+01:00`);
+      const ob = P.orderbok(sc);
+      const sig = P.signal({ ...sc, orderbok: ob });
+      for (const r of ob.rader.filter((x) => x.typ === 'fore')) {
+        if (r.helst) assert.ok(r.helst.startMs < r.startMs && r.helst.kr <= r.r.nu.kr - 0.25);
+        if (r.ellerKort) assert.match(r.stracka, /^kl \d\d:\d\d–\d\d:\d\d$/);
+      }
+      if (sig.ord === 'Kör nu') {
+        for (const id of sig.ids) assert.ok(!ob.rader.find((x) => x.id === id).helstHuvud);
+        assert.doesNotMatch(sig.rad, /däremellan/);
+      }
+    }
+  }
 });
